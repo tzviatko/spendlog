@@ -642,9 +642,9 @@ export default function App() {
           onTouchEnd={handleTouchEnd}
         >
           {/* ── ADD slide ─────────────────────────────────────────── */}
-          <div style={{ width: `${100 / n}%`, height: "100%", display: "flex", flexDirection: "column", touchAction: "pan-y" }}>
+          <div style={{ width: `${100 / n}%`, height: "100%", display: "flex", flexDirection: "column", touchAction: "pan-y", position: "relative" }}>
             <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
-              <div className="max-w-xl mx-auto px-4 pt-5 pb-4 space-y-4">
+              <div className="max-w-xl mx-auto px-4 pt-5 space-y-4" style={{ paddingBottom: "calc(10vh + 80px)" }}>
                 <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">New Expense</p>
                 <Field label="Date & Time">
                   <input type="datetime-local" value={form.date} onChange={e => set("date", e.target.value)} className={inputCls} style={{ width: "50%", boxSizing: "border-box" }} />
@@ -747,10 +747,10 @@ export default function App() {
               </div>
             </div>
             {/* Floating Save button */}
-            <div className="shrink-0 bg-white border-t border-gray-100 px-4 py-3" style={{ paddingBottom: "max(12px, env(safe-area-inset-bottom))", marginBottom: "10vh" }}>
+            <div className="absolute left-0 right-0 px-4 py-3" style={{ bottom: "10vh" }}>
               <div className="max-w-xl mx-auto">
                 <button onClick={handleSave}
-                  className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-sm py-3 rounded-xl transition-all active:scale-95">
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-sm py-3 rounded-xl transition-all active:scale-95 shadow-lg">
                   Save Expense
                 </button>
               </div>
