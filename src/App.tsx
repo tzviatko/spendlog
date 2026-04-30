@@ -923,7 +923,7 @@ function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete }: {
             </button>
           ))}
         </div>
-        <div className="flex items-end gap-2">
+        <div className="flex items-end justify-between">
           <div style={{ width: "33%" }}>
             <p className="text-xs text-gray-400 mb-1">From</p>
             <input type="date" value={fromDate}
