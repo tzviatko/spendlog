@@ -378,7 +378,7 @@ function EditModal({ expense, merchants, allCats, onSave, onClose }: {
   const usdTotal = calcTotal(usdBase, fees, tax);
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-end" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="absolute inset-0 z-50 bg-black/40 flex items-end" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="w-full bg-white rounded-t-2xl max-h-[92vh] overflow-y-auto" style={{ paddingBottom: "env(safe-area-inset-bottom,16px)" }}>
         <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100">
           <h2 className="text-base font-semibold text-gray-800">Edit Expense</h2>
@@ -456,6 +456,7 @@ export default function App() {
   const [toast, setToast]     = useState<{ msg: string; type: string } | null>(null);
   const [customCatLabels, setCustomCatLabels] = useState<string[]>([]);
   const [adminSlide, setAdminSlide]           = useState<HTMLDivElement | null>(null);
+  const [historySlide, setHistorySlide]       = useState<HTMLDivElement | null>(null);
   const [addingCat, setAddingCat]             = useState(false);
   const [newCatName, setNewCatName]           = useState("");
   const newCatInputRef = useRef<HTMLInputElement>(null);
@@ -816,18 +817,21 @@ export default function App() {
           </div>
 
           {/* ── HISTORY slide ────────────────────────────────────── */}
-          <div style={{ width: `${100 / n}%`, height: "100%", overflowY: "auto", touchAction: "pan-y" }}>
-            <div className="max-w-xl mx-auto px-4 py-5">
-              {loading
-                ? <div className="py-20 text-center text-sm text-gray-400">Loading expenses…</div>
-                : <HistoryView
-                    expenses={expenses}
-                    merchants={merchants}
-                    allCats={allCats}
-                    onUpdate={handleUpdate}
-                    onDelete={handleDelete}
-                  />
-              }
+          <div ref={setHistorySlide} style={{ width: `${100 / n}%`, height: "100%", position: "relative", overflow: "hidden" }}>
+            <div style={{ height: "100%", overflowY: "auto", touchAction: "pan-y" }}>
+              <div className="max-w-xl mx-auto px-4 py-5">
+                {loading
+                  ? <div className="py-20 text-center text-sm text-gray-400">Loading expenses…</div>
+                  : <HistoryView
+                      expenses={expenses}
+                      merchants={merchants}
+                      allCats={allCats}
+                      onUpdate={handleUpdate}
+                      onDelete={handleDelete}
+                      portalTarget={historySlide}
+                    />
+                }
+              </div>
             </div>
           </div>
 
@@ -848,9 +852,10 @@ export default function App() {
 }
 
 // ── History view ───────────────────────────────────────────────────────────
-function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete }: {
+function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete, portalTarget }: {
   expenses: Expense[]; merchants: string[]; allCats: CatEntry[];
   onUpdate: (updated: Expense) => void; onDelete: (id: string) => void;
+  portalTarget: HTMLDivElement | null;
 }) {
   const today = new Date();
   const defaultFrom = firstOfMonth(today.getFullYear(), today.getMonth());
@@ -938,13 +943,15 @@ function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete }: {
     a.click(); URL.revokeObjectURL(url);
   };
 
+  const editModal = editing && (
+    <EditModal expense={editing} merchants={merchants} allCats={allCats}
+      onSave={updated => { onUpdate(updated); setEditing(null); }}
+      onClose={() => setEditing(null)} />
+  );
+
   return (
     <div className="space-y-4">
-      {editing && (
-        <EditModal expense={editing} merchants={merchants} allCats={allCats}
-          onSave={updated => { onUpdate(updated); setEditing(null); }}
-          onClose={() => setEditing(null)} />
-      )}
+      {portalTarget ? createPortal(editModal, portalTarget) : editModal}
 
       {/* Summary — only total + count */}
       <div className="grid grid-cols-2 gap-3">
