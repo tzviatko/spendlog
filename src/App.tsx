@@ -3,6 +3,13 @@ import type { User } from "@supabase/supabase-js";
 import { supabase, type ExpenseRow } from "./lib/supabase";
 
 // ── Types ──────────────────────────────────────────────────────────────────
+interface Profile {
+  id: string;
+  email: string;
+  role: "admin" | "user";
+  user_group: string;
+}
+
 interface Expense {
   id: string;
   date: string;
@@ -432,6 +439,7 @@ function EditModal({ expense, merchants, onSave, onClose }: {
 // ── Main App ───────────────────────────────────────────────────────────────
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [view, setView] = useState("entry");
   const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -454,9 +462,17 @@ export default function App() {
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
+      if (!session) setProfile(null);
     });
     return () => subscription.unsubscribe();
   }, []);
+
+  // Fetch current user's profile to determine role
+  useEffect(() => {
+    if (!user) return;
+    supabase.from("profiles").select("*").eq("id", user.id).single()
+      .then(({ data }) => { if (data) setProfile(data as Profile); });
+  }, [user]);
 
   // Load expenses once authenticated
   useEffect(() => {
@@ -582,7 +598,7 @@ export default function App() {
         <div className="max-w-xl mx-auto px-4 flex items-center justify-between h-14">
           <span className="text-indigo-600 font-semibold">Spendlog</span>
           <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
-            {[["entry", "Add"], ["dashboard", "History"]].map(([v, label]) => (
+            {([["entry", "Add"], ["dashboard", "History"], ...(profile?.role === "admin" ? [["admin", "Admin"]] : [])] as [string, string][]).map(([v, label]) => (
               <button key={v} onClick={() => setView(v)}
                 className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${view === v ? "bg-white text-indigo-600 shadow-sm" : "text-gray-500"}`}>
                 {label}
@@ -596,7 +612,9 @@ export default function App() {
         </div>
       </nav>
       <div className="max-w-xl mx-auto px-4 py-5">
-        {view === "entry" ? (
+        {view === "admin" && profile?.role === "admin" ? (
+          <AdminView />
+        ) : view === "entry" ? (
           <div className="bg-white rounded-2xl border border-gray-100 p-5 space-y-4">
             <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">New Expense</p>
             <Field label="Date & Time" sub="(Zimbabwe time)">
@@ -696,6 +714,7 @@ export default function App() {
             merchants={merchants}
             onUpdate={handleUpdate}
             onDelete={handleDelete}
+            isAdmin={profile?.role === "admin"}
           />
         )}
       </div>
@@ -704,11 +723,12 @@ export default function App() {
 }
 
 // ── History view ───────────────────────────────────────────────────────────
-function HistoryView({ expenses, merchants, onUpdate, onDelete }: {
+function HistoryView({ expenses, merchants, onUpdate, onDelete, isAdmin }: {
   expenses: Expense[];
   merchants: string[];
   onUpdate: (updated: Expense) => void;
   onDelete: (id: string) => void;
+  isAdmin?: boolean;
 }) {
   const today = new Date();
   const defaultFrom = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
@@ -813,6 +833,12 @@ function HistoryView({ expenses, merchants, onUpdate, onDelete }: {
 
   return (
     <div className="space-y-4">
+      {isAdmin && (
+        <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5">
+          <span className="text-amber-600 text-xs">⬡</span>
+          <p className="text-xs font-medium text-amber-700">Admin view — showing all users' expenses</p>
+        </div>
+      )}
       {editing && (
         <EditModal expense={editing} merchants={merchants}
           onSave={updated => { onUpdate(updated); setEditing(null); }}
@@ -986,6 +1012,120 @@ function HistoryView({ expenses, merchants, onUpdate, onDelete }: {
               </div>
             );
           })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Edit profile modal ─────────────────────────────────────────────────────
+function EditProfileModal({ profile, onSave, onClose, saving }: {
+  profile: Profile;
+  onSave: (p: Profile) => void;
+  onClose: () => void;
+  saving: boolean;
+}) {
+  const [role, setRole] = useState<"admin" | "user">(profile.role);
+  const [group, setGroup] = useState(profile.user_group);
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="w-full bg-white rounded-t-2xl" style={{ paddingBottom: "env(safe-area-inset-bottom,16px)" }}>
+        <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100">
+          <h2 className="text-base font-semibold text-gray-800">Edit User</h2>
+          <button onClick={onClose} className="text-gray-400 text-xl leading-none">×</button>
+        </div>
+        <div className="px-5 py-4 space-y-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-1">Email</p>
+            <p className="text-sm font-medium text-gray-700">{profile.email}</p>
+          </div>
+          <Field label="Role">
+            <div className="flex gap-2">
+              {(["user", "admin"] as const).map(r => (
+                <button key={r} onClick={() => setRole(r)}
+                  className={`px-5 py-2 rounded-lg text-sm font-medium border transition-all ${role === r ? "bg-indigo-600 text-white border-transparent" : "bg-gray-50 text-gray-600 border-gray-200"}`}>
+                  {r === "admin" ? "Admin" : "User"}
+                </button>
+              ))}
+            </div>
+          </Field>
+          <Field label="Group">
+            <input type="text" value={group} onChange={e => setGroup(e.target.value)}
+              className={inputCls} placeholder="e.g. Sales, Finance, Operations…" />
+          </Field>
+          <button onClick={() => onSave({ ...profile, role, user_group: group })} disabled={saving}
+            className="w-full bg-indigo-600 disabled:opacity-60 text-white font-medium text-sm py-3 rounded-xl active:scale-95 transition-all">
+            {saving ? "Saving…" : "Save Changes"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Admin view ─────────────────────────────────────────────────────────────
+function AdminView() {
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [editing, setEditing] = useState<Profile | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+
+  useEffect(() => {
+    supabase.from("profiles").select("*").order("email")
+      .then(({ data, error }) => {
+        if (error) { setLoadError(true); return; }
+        if (data) setProfiles(data as Profile[]);
+      });
+  }, []);
+
+  const handleSave = async (updated: Profile) => {
+    setSaving(true);
+    const { error } = await supabase.from("profiles")
+      .update({ role: updated.role, user_group: updated.user_group })
+      .eq("id", updated.id);
+    if (!error) {
+      setProfiles(prev => prev.map(p => p.id === updated.id ? updated : p));
+      setEditing(null);
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div className="space-y-4">
+      {editing && (
+        <EditProfileModal
+          profile={editing}
+          onSave={handleSave}
+          onClose={() => setEditing(null)}
+          saving={saving}
+        />
+      )}
+      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100 flex justify-between items-center">
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Users</p>
+          <span className="text-xs text-gray-400">{profiles.length} total</span>
+        </div>
+        {loadError && <div className="py-10 text-center text-sm text-red-400">Failed to load users.</div>}
+        {!loadError && profiles.length === 0 && <div className="py-10 text-center text-sm text-gray-400">No users found.</div>}
+        <div className="divide-y divide-gray-50">
+          {profiles.map(p => (
+            <div key={p.id} className="px-4 py-3 flex items-center gap-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-800 truncate">{p.email}</p>
+                <p className="text-xs text-gray-400 mt-0.5">{p.user_group || "No group"}</p>
+              </div>
+              <span className={`text-xs px-2.5 py-1 rounded-full font-medium shrink-0 ${
+                p.role === "admin" ? "bg-indigo-100 text-indigo-700" : "bg-gray-100 text-gray-600"
+              }`}>
+                {p.role === "admin" ? "Admin" : "User"}
+              </span>
+              <button onClick={() => setEditing(p)}
+                className="text-xs text-indigo-500 font-medium shrink-0 hover:text-indigo-700 transition-colors">
+                Edit
+              </button>
+            </div>
+          ))}
         </div>
       </div>
     </div>
