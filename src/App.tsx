@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from "react";
+import { createPortal } from "react-dom";
 import type { User } from "@supabase/supabase-js";
 import { supabase, type ExpenseRow } from "./lib/supabase";
 
@@ -402,6 +403,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [toast, setToast]     = useState<{ msg: string; type: string } | null>(null);
   const [customCatLabels, setCustomCatLabels] = useState<string[]>([]);
+  const [adminSlide, setAdminSlide]           = useState<HTMLDivElement | null>(null);
   const [addingCat, setAddingCat]             = useState(false);
   const [newCatName, setNewCatName]           = useState("");
   const newCatInputRef = useRef<HTMLInputElement>(null);
@@ -773,9 +775,11 @@ export default function App() {
 
           {/* ── ADMIN slide ──────────────────────────────────────── */}
           {isPrivileged && (
-            <div style={{ width: `${100 / n}%`, height: "100%", overflowY: "auto", touchAction: "pan-y" }}>
-              <div className="max-w-xl mx-auto px-4 py-5">
-                <AdminView currentProfile={profile} />
+            <div ref={setAdminSlide} style={{ width: `${100 / n}%`, height: "100%", position: "relative", overflow: "hidden" }}>
+              <div style={{ height: "100%", overflowY: "auto", touchAction: "pan-y" }}>
+                <div className="max-w-xl mx-auto px-4 py-5">
+                  <AdminView currentProfile={profile} portalTarget={adminSlide} />
+                </div>
               </div>
             </div>
           )}
@@ -1053,7 +1057,7 @@ function EditProfileModal({ profile, onSave, onClose, saving }: {
   ];
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-end" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="absolute inset-0 z-50 bg-black/40 flex items-end" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="w-full bg-white rounded-t-2xl" style={{ paddingBottom: "env(safe-area-inset-bottom,16px)" }}>
         <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100">
           <h2 className="text-base font-semibold text-gray-800">Edit User</h2>
@@ -1085,7 +1089,7 @@ function EditProfileModal({ profile, onSave, onClose, saving }: {
 }
 
 // ── Admin view ─────────────────────────────────────────────────────────────
-function AdminView({ currentProfile }: { currentProfile: Profile | null }) {
+function AdminView({ currentProfile, portalTarget }: { currentProfile: Profile | null; portalTarget: HTMLDivElement | null }) {
   const [profiles, setProfiles]     = useState<Profile[]>([]);
   const [editing, setEditing]       = useState<Profile | null>(null);
   const [saving, setSaving]         = useState(false);
@@ -1135,16 +1139,18 @@ function AdminView({ currentProfile }: { currentProfile: Profile | null }) {
     setAddingUser(false);
   };
 
+  const modal = editing ? (
+    <EditProfileModal
+      profile={editing}
+      onSave={handleSave}
+      onClose={() => setEditing(null)}
+      saving={saving}
+    />
+  ) : null;
+
   return (
     <div className="space-y-4">
-      {editing && (
-        <EditProfileModal
-          profile={editing}
-          onSave={handleSave}
-          onClose={() => setEditing(null)}
-          saving={saving}
-        />
-      )}
+      {portalTarget ? createPortal(modal, portalTarget) : modal}
 
       {/* Newly created user credentials */}
       {addedInfo && (
