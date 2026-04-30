@@ -90,9 +90,9 @@ const firstOfMonth = (y: number, m0: number) => localIso(new Date(y, m0, 1));   
 const lastOfMonth  = (y: number, m0: number) => localIso(new Date(y, m0 + 1, 0));  // day-0 of next month = last day of m0
 
 const fmtUsd  = (n: number) => "$" + (n || 0).toFixed(2);
-const fmtDate = (s: string) => new Date(s).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-const fmtTime = (s: string) => new Date(s).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-const fmtDateLabel = (d: string) => d ? new Date(d + "T12:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "";
+const fmtDate = (s: string) => new Date(s).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+const fmtTime = (s: string) => new Date(s).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
+const fmtDateLabel = (d: string) => d ? new Date(d + "T12:00").toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }) : "";
 
 const rowToExpense = (row: ExpenseRow): Expense => ({
   id: row.id, date: row.date, merchant: row.merchant,
