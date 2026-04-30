@@ -865,6 +865,8 @@ function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete }: {
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [activeMonth, setActiveMonth] = useState<string | null>(null);
+  const [displayCount, setDisplayCount] = useState(20);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
   const handleMonthClick = useCallback((key: string) => {
     if (activeMonth === key) {
@@ -895,6 +897,19 @@ function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete }: {
     if (toDate && e.date > toDate + "T23:59") return false;
     return true;
   }), [expenses, catFilter, pmFilter, fromDate, toDate]);
+
+  useEffect(() => { setDisplayCount(20); }, [filtered]);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting)
+        setDisplayCount(c => Math.min(c + 20, filtered.length));
+    }, { rootMargin: "200px" });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [filtered]);
 
   const filteredNoCat = useMemo(() => expenses.filter(e => {
     if (pmFilter && e.payment !== pmFilter) return false;
@@ -1044,8 +1059,8 @@ function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete }: {
           <span className="text-xs text-gray-400">{filtered.length} records</span>
         </div>
         {filtered.length === 0 && <div className="py-10 text-center text-sm text-gray-400">No expenses match your filters.</div>}
-        <div className="divide-y divide-gray-50">
-          {filtered.map(e => {
+        <div className="divide-y divide-gray-50" id="expense-list">
+          {filtered.slice(0, displayCount).map(e => {
             const isOpen = expanded === e.id;
             const ub = calcUsdBase(e.amount, e.rate);
             const { fees: fe, tax: tx } = calcFeesAndTax(ub, e.payment);
@@ -1107,6 +1122,10 @@ function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete }: {
             );
           })}
         </div>
+        <div ref={sentinelRef} />
+        {displayCount < filtered.length && (
+          <div className="py-4 text-center text-xs text-gray-400">Loading more…</div>
+        )}
       </div>
     </div>
   );
