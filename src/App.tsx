@@ -924,14 +924,14 @@ function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete }: {
           ))}
         </div>
         <div className="flex items-end gap-2">
-          <div style={{ width: "33%" }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
             <p className="text-xs text-gray-400 mb-1">From</p>
             <input type="date" value={fromDate}
               onChange={e => { setFromDate(e.target.value); setActiveMonth(null); }}
               className={inputCls} style={{ width: "100%", boxSizing: "border-box" }} />
           </div>
-          <span className="text-gray-300 pb-2.5">→</span>
-          <div style={{ width: "33%" }}>
+          <span className="text-gray-300 shrink-0 pb-2.5">→</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
             <p className="text-xs text-gray-400 mb-1">To</p>
             <input type="date" value={toDate}
               onChange={e => { setToDate(e.target.value); setActiveMonth(null); }}
