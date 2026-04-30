@@ -6,8 +6,7 @@ import { supabase, type ExpenseRow } from "./lib/supabase";
 interface Profile {
   id: string;
   email: string;
-  role: "admin" | "user" | "super_admin";
-  user_group: string;
+  role: "admin" | "user";
 }
 
 interface Expense {
@@ -20,7 +19,6 @@ interface Expense {
   payment: string;
   notes: string;
   usdAmount: number;
-  user_group: string;
 }
 
 type CatEntry = { label: string; tw: string; hex: string };
@@ -49,10 +47,6 @@ const EXTRA_COLORS: Omit<CatEntry, "label">[] = [
 
 const PAYMENTS = ["Cash","Card ZIM","Card USA","EcoCash","Transfer external","Transfer internal internet","Transfer internal mobile"];
 
-const ADJECTIVES = ["Swift","Bright","Bold","Clear","Crisp","Sharp","Deep","Pure","True","Fresh"];
-const NOUNS      = ["Fox","Eagle","Wolf","Bear","Lion","Hawk","Peak","Star","Ridge","Stone"];
-const randomGroup = () =>
-  `${ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)]}${NOUNS[Math.floor(Math.random() * NOUNS.length)]}`;
 const randomPassword = () => {
   const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#";
   return Array.from({ length: 12 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
@@ -103,7 +97,7 @@ const rowToExpense = (row: ExpenseRow): Expense => ({
   id: row.id, date: row.date, merchant: row.merchant,
   category: row.category, amount: Number(row.amount), rate: Number(row.rate),
   payment: row.payment, notes: row.notes || "",
-  usdAmount: Number(row.usd_amount), user_group: row.user_group ?? "",
+  usdAmount: Number(row.usd_amount),
 });
 
 // ── Shared styles ──────────────────────────────────────────────────────────
@@ -408,8 +402,6 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [toast, setToast]     = useState<{ msg: string; type: string } | null>(null);
   const [customCatLabels, setCustomCatLabels] = useState<string[]>([]);
-  const [selectedGroup, setSelectedGroup]     = useState("");
-  const [allGroups, setAllGroups]             = useState<string[]>([]);
   const [addingCat, setAddingCat]             = useState(false);
   const [newCatName, setNewCatName]           = useState("");
   const newCatInputRef = useRef<HTMLInputElement>(null);
@@ -429,7 +421,7 @@ export default function App() {
   const touchStartY  = useRef(0);
   const dragDirRef   = useRef<"h" | "v" | null>(null);
 
-  const isPrivileged = profile?.role === "admin" || profile?.role === "super_admin";
+  const isPrivileged = profile?.role === "admin";
   const views = useMemo(() => {
     const v = ["entry", "dashboard"];
     if (isPrivileged) v.push("admin");
@@ -480,14 +472,11 @@ export default function App() {
       .then(({ data }) => { if (data) setProfile(data as Profile); });
   }, [user]);
 
-  // ── Load expenses (RLS handles group/role filtering; super_admin can add extra group filter) ──
+  // ── Load expenses ──
   useEffect(() => {
     if (!user) return;
     setLoading(true);
-    let query = supabase.from("expenses").select("*").order("date", { ascending: false });
-    if (profile?.role === "super_admin" && selectedGroup) {
-      query = query.eq("user_group", selectedGroup);
-    }
+    const query = supabase.from("expenses").select("*").order("date", { ascending: false });
     query.then(async ({ data, error }) => {
       if (!error && data) {
         setExpenses((data as ExpenseRow[]).map(rowToExpense));
@@ -498,18 +487,7 @@ export default function App() {
       }
       setLoading(false);
     });
-  }, [user, profile?.role, selectedGroup]);
-
-  // ── Load all groups for super_admin switcher ──
-  useEffect(() => {
-    if (profile?.role !== "super_admin") return;
-    supabase.from("profiles").select("user_group").then(({ data }) => {
-      if (data) {
-        const groups = [...new Set((data as { user_group: string }[]).map(p => p.user_group).filter(Boolean))].sort();
-        setAllGroups(groups);
-      }
-    });
-  }, [profile?.role]);
+  }, [user, profile?.role]);
 
   // Reset to entry if current view is removed (e.g., role changes)
   useEffect(() => {
@@ -579,7 +557,7 @@ export default function App() {
       date: form.date, merchant, category: form.category,
       amount: parseFloat(form.amount), rate: parseFloat(form.rate) || 1,
       payment: form.payment, notes: form.notes, usd_amount: usdAmount,
-      user_id: user?.id, user_group: profile?.user_group ?? "",
+      user_id: user?.id,
     }).select().single();
     if (error) { showToast("Failed to save", "error"); return; }
     setExpenses(p => [rowToExpense(data as ExpenseRow), ...p]);
@@ -645,17 +623,6 @@ export default function App() {
             Sign out
           </button>
         </div>
-        {/* Super admin group switcher */}
-        {profile?.role === "super_admin" && (
-          <div className="max-w-xl mx-auto px-4 pb-2 flex items-center gap-2">
-            <span className="text-xs text-gray-400">Group:</span>
-            <select value={selectedGroup} onChange={e => setSelectedGroup(e.target.value)}
-              className="text-xs rounded-lg border border-gray-200 px-2 py-1 text-gray-600 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300">
-              <option value="">All groups</option>
-              {allGroups.map(g => <option key={g} value={g}>{g}</option>)}
-            </select>
-          </div>
-        )}
       </nav>
 
       {/* Slides */}
@@ -1074,17 +1041,15 @@ function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete }: {
 }
 
 // ── Edit profile modal ─────────────────────────────────────────────────────
-function EditProfileModal({ profile, currentRole, onSave, onClose, saving }: {
-  profile: Profile; currentRole: Profile["role"];
+function EditProfileModal({ profile, onSave, onClose, saving }: {
+  profile: Profile;
   onSave: (p: Profile) => void; onClose: () => void; saving: boolean;
 }) {
-  const [role, setRole]   = useState<Profile["role"]>(profile.role);
-  const [group, setGroup] = useState(profile.user_group);
+  const [role, setRole] = useState<Profile["role"]>(profile.role);
 
   const roleOptions: { value: Profile["role"]; label: string }[] = [
     { value: "user", label: "User" },
     { value: "admin", label: "Admin" },
-    ...(currentRole === "super_admin" ? [{ value: "super_admin" as Profile["role"], label: "Super Admin" }] : []),
   ];
 
   return (
@@ -1109,10 +1074,7 @@ function EditProfileModal({ profile, currentRole, onSave, onClose, saving }: {
               ))}
             </div>
           </Field>
-          <Field label="Group">
-            <input type="text" value={group} onChange={e => setGroup(e.target.value)} className={inputCls} placeholder="e.g. SwiftFox, BrightEagle…" />
-          </Field>
-          <button onClick={() => onSave({ ...profile, role, user_group: group })} disabled={saving}
+          <button onClick={() => onSave({ ...profile, role })} disabled={saving}
             className="w-full bg-indigo-600 disabled:opacity-60 text-white font-medium text-sm py-3 rounded-xl active:scale-95 transition-all">
             {saving ? "Saving…" : "Save Changes"}
           </button>
@@ -1131,10 +1093,9 @@ function AdminView({ currentProfile }: { currentProfile: Profile | null }) {
   const [showAdd, setShowAdd]       = useState(false);
   const [newEmail, setNewEmail]     = useState("");
   const [newPassword, setNewPassword] = useState(() => randomPassword());
-  const [newGroup, setNewGroup]     = useState(() => randomGroup());
   const [addingUser, setAddingUser] = useState(false);
   const [addError, setAddError]     = useState("");
-  const [addedInfo, setAddedInfo]   = useState<{ email: string; password: string; group: string } | null>(null);
+  const [addedInfo, setAddedInfo]   = useState<{ email: string; password: string } | null>(null);
 
   useEffect(() => {
     supabase.from("profiles").select("*").order("email").then(({ data, error }) => {
@@ -1151,7 +1112,7 @@ function AdminView({ currentProfile }: { currentProfile: Profile | null }) {
   const handleSave = async (updated: Profile) => {
     setSaving(true);
     const { error } = await supabase.from("profiles")
-      .update({ role: updated.role, user_group: updated.user_group })
+      .update({ role: updated.role })
       .eq("id", updated.id);
     if (!error) { setProfiles(prev => prev.map(p => p.id === updated.id ? updated : p)); setEditing(null); }
     setSaving(false);
@@ -1164,11 +1125,11 @@ function AdminView({ currentProfile }: { currentProfile: Profile | null }) {
     if (error) { setAddError(error.message); setAddingUser(false); return; }
     if (data.user) {
       await supabase.from("profiles").upsert({
-        id: data.user.id, email: newEmail, role: "user", user_group: newGroup,
+        id: data.user.id, email: newEmail, role: "user",
       }, { onConflict: "id" });
       await reloadProfiles();
-      setAddedInfo({ email: newEmail, password: newPassword, group: newGroup });
-      setNewEmail(""); setNewPassword(randomPassword()); setNewGroup(randomGroup());
+      setAddedInfo({ email: newEmail, password: newPassword });
+      setNewEmail(""); setNewPassword(randomPassword());
       setShowAdd(false);
     }
     setAddingUser(false);
@@ -1179,7 +1140,6 @@ function AdminView({ currentProfile }: { currentProfile: Profile | null }) {
       {editing && (
         <EditProfileModal
           profile={editing}
-          currentRole={currentProfile?.role ?? "admin"}
           onSave={handleSave}
           onClose={() => setEditing(null)}
           saving={saving}
@@ -1192,7 +1152,6 @@ function AdminView({ currentProfile }: { currentProfile: Profile | null }) {
           <p className="text-xs font-semibold text-green-700">User created — share these credentials:</p>
           <p className="text-xs text-green-700">Email: <span className="font-mono font-medium">{addedInfo.email}</span></p>
           <p className="text-xs text-green-700">Password: <span className="font-mono font-medium">{addedInfo.password}</span></p>
-          <p className="text-xs text-green-700">Group: <span className="font-medium">{addedInfo.group}</span></p>
           <button onClick={() => setAddedInfo(null)} className="text-xs text-green-600 font-medium mt-1">Dismiss</button>
         </div>
       )}
@@ -1220,16 +1179,6 @@ function AdminView({ currentProfile }: { currentProfile: Profile | null }) {
                 </button>
               </div>
             </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-widest text-gray-400 mb-1">Group</label>
-              <div className="flex gap-2">
-                <input type="text" value={newGroup} onChange={e => setNewGroup(e.target.value)} className={inputCls} placeholder="e.g. SwiftFox" />
-                <button onClick={() => setNewGroup(randomGroup())}
-                  className="shrink-0 px-3 py-2 rounded-lg border border-gray-200 text-xs text-gray-500 hover:bg-gray-50 transition-colors">
-                  Random
-                </button>
-              </div>
-            </div>
             {addError && <p className="text-xs text-red-600 font-medium">{addError}</p>}
             <button onClick={handleAddUser} disabled={addingUser}
               className="w-full bg-indigo-600 disabled:opacity-60 text-white font-medium text-sm py-3 rounded-xl active:scale-95 transition-all">
@@ -1252,14 +1201,11 @@ function AdminView({ currentProfile }: { currentProfile: Profile | null }) {
             <div key={p.id} className="px-4 py-3 flex items-center gap-3">
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-gray-800 truncate">{p.email}</p>
-                <p className="text-xs text-gray-400 mt-0.5">{p.user_group || "No group"}</p>
               </div>
               <span className={`text-xs px-2.5 py-1 rounded-full font-medium shrink-0 ${
-                p.role === "super_admin" ? "bg-purple-100 text-purple-700"
-                : p.role === "admin"     ? "bg-indigo-100 text-indigo-700"
-                :                          "bg-gray-100 text-gray-600"
+                p.role === "admin" ? "bg-indigo-100 text-indigo-700" : "bg-gray-100 text-gray-600"
               }`}>
-                {p.role === "super_admin" ? "Super Admin" : p.role === "admin" ? "Admin" : "User"}
+                {p.role === "admin" ? "Admin" : "User"}
               </span>
               <button onClick={() => setEditing(p)} className="text-xs text-indigo-500 font-medium shrink-0 hover:text-indigo-700 transition-colors">Edit</button>
             </div>
