@@ -747,7 +747,7 @@ export default function App() {
               </div>
             </div>
             {/* Floating Save button */}
-            <div className="shrink-0 bg-white border-t border-gray-100 px-4 py-3" style={{ paddingBottom: "max(12px, env(safe-area-inset-bottom))" }}>
+            <div className="shrink-0 bg-white border-t border-gray-100 px-4 py-3" style={{ paddingBottom: "max(12px, env(safe-area-inset-bottom))", marginBottom: "10vh" }}>
               <div className="max-w-xl mx-auto">
                 <button onClick={handleSave}
                   className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-sm py-3 rounded-xl transition-all active:scale-95">
