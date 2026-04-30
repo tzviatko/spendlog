@@ -1085,6 +1085,7 @@ function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete, portalT
                       <span className="text-xs text-gray-300">·</span>
                       <span className="text-xs text-gray-400">{e.payment}</span>
                     </div>
+                    {e.notes && <p className="text-xs text-gray-400 italic mt-0.5 truncate">{e.notes}</p>}
                   </div>
                   <span className="text-sm font-semibold text-gray-800 shrink-0">{fmtUsd(e.usdAmount)}</span>
                   <span className={`text-gray-300 text-xs transition-transform ${isOpen ? "rotate-180" : ""}`}>▼</span>
@@ -1092,7 +1093,7 @@ function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete, portalT
                 {isOpen && (
                   <div className="px-4 pb-4 bg-gray-50 border-t border-gray-100 space-y-3">
                     <div className="grid grid-cols-3 gap-2 pt-3">
-                      {[["Local amt", fmtAmt(e.amount)], ["Rate", fmtAmt(e.rate, 4)], ["USD Base", fmtUsd(ub)]].map(([l, v]) => (
+                      {[["Amount", fmtAmt(e.amount)], ["Rate", fmtAmt(e.rate, 4)], ["USD Base", fmtUsd(ub)]].map(([l, v]) => (
                         <div key={l} className="bg-white rounded-lg p-2 border border-gray-100">
                           <p className="text-xs text-gray-400 mb-0.5">{l}</p>
                           <p className="text-sm font-semibold text-gray-700">{v}</p>
@@ -1107,7 +1108,12 @@ function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete, portalT
                         </div>
                       ))}
                     </div>
-                    {e.notes && <p className="text-xs text-gray-500 italic">"{e.notes}"</p>}
+                    {e.notes && (
+                      <div className="bg-white rounded-lg border border-gray-100 px-3 py-2">
+                        <p className="text-xs text-gray-400 mb-0.5">Notes</p>
+                        <p className="text-sm text-gray-700 italic">{e.notes}</p>
+                      </div>
+                    )}
                     <div className="flex gap-2">
                       <button onClick={() => setEditing(e)}
                         className="flex-1 py-2 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-600 text-xs font-medium active:scale-95 transition-all">Edit</button>
