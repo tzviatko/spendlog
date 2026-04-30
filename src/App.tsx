@@ -678,9 +678,7 @@ export default function App() {
               <div className="max-w-xl mx-auto px-4 pt-5 pb-4 space-y-4">
                 <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">New Expense</p>
                 <Field label="Date & Time">
-                  <div style={{ overflow: "hidden", borderRadius: 8 }}>
-                    <input type="datetime-local" value={form.date} onChange={e => set("date", e.target.value)} className={inputCls} style={{ width: "100%", boxSizing: "border-box" }} />
-                  </div>
+                  <input type="datetime-local" value={form.date} onChange={e => set("date", e.target.value)} className={inputCls} style={{ width: "100%", boxSizing: "border-box" }} />
                 </Field>
                 <Field label="Merchant">
                   <div className="flex gap-2">
@@ -925,13 +923,14 @@ function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete }: {
             </button>
           ))}
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "end", gap: "0 8px" }}>
           <div>
             <p className="text-xs text-gray-400 mb-1">From</p>
             <input type="date" value={fromDate}
               onChange={e => { setFromDate(e.target.value); setActiveMonth(null); }}
               className={inputCls} style={{ width: "100%", boxSizing: "border-box" }} />
           </div>
+          <span className="text-gray-300 pb-2.5">→</span>
           <div>
             <p className="text-xs text-gray-400 mb-1">To</p>
             <input type="date" value={toDate}
