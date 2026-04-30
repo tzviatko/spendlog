@@ -118,24 +118,48 @@ function Field({ label, children, sub }: { label: string; children: React.ReactN
 }
 
 // ── Stacked bar chart ──────────────────────────────────────────────────────
-function StackedChart({ expenses, allCats, onMonthClick, activeMonth }: {
+function StackedChart({ expenses, allCats, onMonthClick, activeMonth, fromDate, toDate }: {
   expenses: Expense[]; allCats: CatEntry[];
   onMonthClick: (key: string) => void; activeMonth: string | null;
+  fromDate: string; toDate: string;
 }) {
   const months = useMemo(() => {
+    const now = new Date();
+    // Derive start/end month from filters, falling back to last 4 months
+    let startY: number, startM: number, endY: number, endM: number;
+    if (fromDate) {
+      const d = new Date(fromDate + "T12:00");
+      startY = d.getFullYear(); startM = d.getMonth();
+    } else if (expenses.length > 0) {
+      const earliest = expenses.reduce((a, b) => a.date < b.date ? a : b);
+      const d = new Date(earliest.date);
+      startY = d.getFullYear(); startM = d.getMonth();
+    } else {
+      startY = now.getFullYear(); startM = now.getMonth() - 3;
+    }
+    if (toDate) {
+      const d = new Date(toDate + "T12:00");
+      endY = d.getFullYear(); endM = d.getMonth();
+    } else {
+      endY = now.getFullYear(); endM = now.getMonth();
+    }
+    const spanYears = endY > startY;
     const out = [];
-    for (let i = 3; i >= 0; i--) {
-      const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - i);
-      const key = d.toISOString().slice(0, 7);
-      const label = d.toLocaleString("default", { month: "short" });
+    let y = startY, m = startM;
+    while (y < endY || (y === endY && m <= endM)) {
+      const key = `${y}-${String(m + 1).padStart(2, "0")}`;
+      const d = new Date(y, m, 1);
+      const shortMonth = d.toLocaleString("default", { month: "short" });
+      const label = spanYears ? `${shortMonth} '${String(y).slice(2)}` : shortMonth;
       const entries = expenses.filter(e => e.date.startsWith(key));
       const byCat: Record<string, number> = {};
       entries.forEach(e => { byCat[e.category] = (byCat[e.category] || 0) + e.usdAmount; });
       const total = Object.values(byCat).reduce((s, v) => s + v, 0);
       out.push({ key, label, byCat, total: parseFloat(total.toFixed(2)) });
+      m++; if (m > 11) { m = 0; y++; }
     }
     return out;
-  }, [expenses]);
+  }, [expenses, fromDate, toDate]);
 
   const max = Math.max(...months.map(m => m.total), 1);
   return (
@@ -919,7 +943,7 @@ function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete }: {
       {/* Monthly Spend chart */}
       <div className="bg-white rounded-2xl border border-gray-100 p-4">
         <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-3">Monthly Spend — tap a bar to filter</p>
-        <StackedChart expenses={expenses} allCats={allCats} onMonthClick={handleMonthClick} activeMonth={activeMonth} />
+        <StackedChart expenses={expenses} allCats={allCats} onMonthClick={handleMonthClick} activeMonth={activeMonth} fromDate={fromDate} toDate={toDate} />
       </div>
 
       {/* Category pie */}
