@@ -6,7 +6,7 @@ import { supabase, type ExpenseRow } from "./lib/supabase";
 interface Profile {
   id: string;
   email: string;
-  role: "admin" | "user";
+  role: "admin" | "user" | "super_admin";
   user_group: string;
 }
 
@@ -20,50 +20,62 @@ interface Expense {
   payment: string;
   notes: string;
   usdAmount: number;
+  user_group: string;
 }
 
-// ── Constants ──────────────────────────────────────────────────────────────
-const CAT = [
-  { label: "Food & Groceries", tw: "bg-emerald-100 text-emerald-800", hex: "#6ee7b7" },
-  { label: "Transport", tw: "bg-sky-100 text-sky-800", hex: "#7dd3fc" },
-  { label: "Utilities", tw: "bg-violet-100 text-violet-800", hex: "#c4b5fd" },
-  { label: "Health", tw: "bg-rose-100 text-rose-800", hex: "#fda4af" },
-  { label: "Entertainment", tw: "bg-amber-100 text-amber-800", hex: "#fcd34d" },
-  { label: "Clothing", tw: "bg-pink-100 text-pink-800", hex: "#f9a8d4" },
-  { label: "Home & Construction", tw: "bg-orange-100 text-orange-800", hex: "#fdba74" },
-  { label: "Travel", tw: "bg-cyan-100 text-cyan-800", hex: "#67e8f9" },
-  { label: "Business", tw: "bg-indigo-100 text-indigo-800", hex: "#a5b4fc" },
-  { label: "Other", tw: "bg-gray-100 text-gray-600", hex: "#d1d5db" },
-];
-const PAYMENTS = ["Cash", "Card ZIM", "Card USA", "EcoCash", "Transfer external", "Transfer internal internet", "Transfer internal mobile"];
+type CatEntry = { label: string; tw: string; hex: string };
 
-const catTw = (l: string) => CAT.find(c => c.label === l)?.tw ?? "bg-gray-100 text-gray-600";
-const catHex = (l: string) => CAT.find(c => c.label === l)?.hex ?? "#d1d5db";
+// ── Constants ──────────────────────────────────────────────────────────────
+const CAT: CatEntry[] = [
+  { label: "Food & Groceries", tw: "bg-emerald-100 text-emerald-800", hex: "#6ee7b7" },
+  { label: "Transport",        tw: "bg-sky-100 text-sky-800",         hex: "#7dd3fc" },
+  { label: "Utilities",        tw: "bg-violet-100 text-violet-800",   hex: "#c4b5fd" },
+  { label: "Health",           tw: "bg-rose-100 text-rose-800",       hex: "#fda4af" },
+  { label: "Entertainment",    tw: "bg-amber-100 text-amber-800",     hex: "#fcd34d" },
+  { label: "Clothing",         tw: "bg-pink-100 text-pink-800",       hex: "#f9a8d4" },
+  { label: "Home & Construction", tw: "bg-orange-100 text-orange-800", hex: "#fdba74" },
+  { label: "Travel",           tw: "bg-cyan-100 text-cyan-800",       hex: "#67e8f9" },
+  { label: "Business",         tw: "bg-indigo-100 text-indigo-800",   hex: "#a5b4fc" },
+  { label: "Other",            tw: "bg-gray-100 text-gray-600",       hex: "#d1d5db" },
+];
+
+const EXTRA_COLORS: Omit<CatEntry, "label">[] = [
+  { tw: "bg-teal-100 text-teal-800",    hex: "#5eead4" },
+  { tw: "bg-lime-100 text-lime-800",    hex: "#bef264" },
+  { tw: "bg-fuchsia-100 text-fuchsia-800", hex: "#f0abfc" },
+  { tw: "bg-red-100 text-red-700",      hex: "#fca5a5" },
+  { tw: "bg-yellow-100 text-yellow-700", hex: "#fde68a" },
+];
+
+const PAYMENTS = ["Cash","Card ZIM","Card USA","EcoCash","Transfer external","Transfer internal internet","Transfer internal mobile"];
+
+const ADJECTIVES = ["Swift","Bright","Bold","Clear","Crisp","Sharp","Deep","Pure","True","Fresh"];
+const NOUNS      = ["Fox","Eagle","Wolf","Bear","Lion","Hawk","Peak","Star","Ridge","Stone"];
+const randomGroup = () =>
+  `${ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)]}${NOUNS[Math.floor(Math.random() * NOUNS.length)]}`;
+const randomPassword = () => {
+  const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#";
+  return Array.from({ length: 12 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+};
+
+// Fallback helpers for base categories (custom cats fall back to gray)
+const catTw  = (l: string, all?: CatEntry[]) => (all ?? CAT).find(c => c.label === l)?.tw  ?? "bg-gray-100 text-gray-600";
+const catHex = (l: string, all?: CatEntry[]) => (all ?? CAT).find(c => c.label === l)?.hex ?? "#d1d5db";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 const nowZW = () => {
-  const now = new Date();
-  const zw = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+  const zw = new Date(Date.now() + 2 * 3600 * 1000);
   return zw.toISOString().slice(0, 16);
 };
 
 const calcFeesAndTax = (amountUsd: number, payment: string) => {
-  let fees = 0;
-  let tax = 0;
+  let fees = 0, tax = 0;
   const amt = amountUsd || 0;
-  if (payment === "Card ZIM") {
-    fees = Math.max(amt * 0.0165, 1.50) + 0.20 + amt * 0.006;
-    tax = amt * 0.02;
-  } else if (payment === "EcoCash") {
-    fees = amt * 0.013;
-    tax = amt > 5 ? amt * 0.02 : 0;
-  } else if (payment === "Transfer external") {
-    fees = 3; tax = amt * 0.02;
-  } else if (payment === "Transfer internal internet") {
-    fees = 1; tax = amt * 0.02;
-  } else if (payment === "Transfer internal mobile") {
-    fees = 2; tax = amt * 0.02;
-  }
+  if (payment === "Card ZIM")                   { fees = Math.max(amt * 0.0165, 1.5) + 0.2 + amt * 0.006; tax = amt * 0.02; }
+  else if (payment === "EcoCash")               { fees = amt * 0.013; tax = amt > 5 ? amt * 0.02 : 0; }
+  else if (payment === "Transfer external")     { fees = 3; tax = amt * 0.02; }
+  else if (payment === "Transfer internal internet") { fees = 1; tax = amt * 0.02; }
+  else if (payment === "Transfer internal mobile")   { fees = 2; tax = amt * 0.02; }
   return { fees: parseFloat(fees.toFixed(2)), tax: parseFloat(tax.toFixed(2)) };
 };
 
@@ -72,25 +84,20 @@ const calcUsdBase = (amount: string | number, rate: string | number) =>
 const calcTotal = (usdBase: number, fees: number, tax: number) =>
   parseFloat((usdBase + fees + tax).toFixed(2));
 
-const fmtUsd = (n: number) => "$" + (n || 0).toFixed(2);
+const fmtUsd  = (n: number) => "$" + (n || 0).toFixed(2);
 const fmtDate = (s: string) => new Date(s).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 const fmtTime = (s: string) => new Date(s).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 const fmtDateLabel = (d: string) => d ? new Date(d + "T12:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "";
 
 const rowToExpense = (row: ExpenseRow): Expense => ({
-  id: row.id,
-  date: row.date,
-  merchant: row.merchant,
-  category: row.category,
-  amount: Number(row.amount),
-  rate: Number(row.rate),
-  payment: row.payment,
-  notes: row.notes || "",
-  usdAmount: Number(row.usd_amount),
+  id: row.id, date: row.date, merchant: row.merchant,
+  category: row.category, amount: Number(row.amount), rate: Number(row.rate),
+  payment: row.payment, notes: row.notes || "",
+  usdAmount: Number(row.usd_amount), user_group: row.user_group ?? "",
 });
 
 // ── Shared styles ──────────────────────────────────────────────────────────
-const inputCls = "w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300";
+const inputCls    = "w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300";
 const readonlyCls = "w-full rounded-lg border border-gray-100 px-3 py-2.5 text-sm bg-gray-50 cursor-not-allowed";
 
 // ── Field wrapper ──────────────────────────────────────────────────────────
@@ -106,10 +113,9 @@ function Field({ label, children, sub }: { label: string; children: React.ReactN
 }
 
 // ── Stacked bar chart ──────────────────────────────────────────────────────
-function StackedChart({ expenses, onMonthClick, activeMonth }: {
-  expenses: Expense[];
-  onMonthClick: (key: string) => void;
-  activeMonth: string | null;
+function StackedChart({ expenses, allCats, onMonthClick, activeMonth }: {
+  expenses: Expense[]; allCats: CatEntry[];
+  onMonthClick: (key: string) => void; activeMonth: string | null;
 }) {
   const months = useMemo(() => {
     const out = [];
@@ -127,7 +133,6 @@ function StackedChart({ expenses, onMonthClick, activeMonth }: {
   }, [expenses]);
 
   const max = Math.max(...months.map(m => m.total), 1);
-
   return (
     <div>
       <div className="flex items-end gap-3" style={{ height: 120 }}>
@@ -137,17 +142,14 @@ function StackedChart({ expenses, onMonthClick, activeMonth }: {
           const segs = Object.entries(m.byCat).sort((a, b) => b[1] - a[1]);
           return (
             <button key={m.key} onClick={() => onMonthClick(m.key)}
-              className="flex-1 flex flex-col items-center gap-1 focus:outline-none group"
-              style={{ height: "100%" }}>
-              <span className="text-xs text-gray-400 mb-1" style={{ fontSize: 10 }}>
-                {m.total > 0 ? fmtUsd(m.total) : ""}
-              </span>
-              <div className="w-full flex flex-col justify-end rounded-t-md overflow-hidden"
+              className="flex-1 flex flex-col items-center gap-1 focus:outline-none" style={{ height: "100%" }}>
+              <span className="text-gray-400 mb-1" style={{ fontSize: 10 }}>{m.total > 0 ? fmtUsd(m.total) : ""}</span>
+              <div className="w-full flex flex-col justify-end overflow-hidden"
                 style={{ height: "75%", border: isActive ? "2px solid #4f46e5" : "2px solid transparent", borderRadius: 6 }}>
                 {m.total === 0
-                  ? <div className="w-full bg-gray-100 rounded-t-md" style={{ height: "8%" }} />
+                  ? <div className="w-full bg-gray-100" style={{ height: "8%" }} />
                   : segs.map(([cat, val]) => (
-                    <div key={cat} style={{ height: `${(val / m.total) * barH}%`, background: catHex(cat), minHeight: 2 }} />
+                    <div key={cat} style={{ height: `${(val / m.total) * barH}%`, background: catHex(cat, allCats), minHeight: 2 }} />
                   ))}
               </div>
               <span className={`text-xs font-medium mt-1 ${isActive ? "text-indigo-600" : "text-gray-400"}`} style={{ fontSize: 11 }}>{m.label}</span>
@@ -156,107 +158,77 @@ function StackedChart({ expenses, onMonthClick, activeMonth }: {
         })}
       </div>
       <div className="flex flex-wrap gap-x-3 gap-y-1 mt-3">
-        {CAT.filter(c => expenses.some(e => e.category === c.label)).map(c => (
-          <span key={c.label} className="flex items-center gap-1 text-xs text-gray-500" style={{ fontSize: 10 }}>
+        {allCats.filter(c => expenses.some(e => e.category === c.label)).map(c => (
+          <span key={c.label} className="flex items-center gap-1 text-gray-500" style={{ fontSize: 10 }}>
             <span style={{ width: 8, height: 8, borderRadius: 2, background: c.hex, display: "inline-block" }} />
             {c.label}
           </span>
         ))}
       </div>
       {activeMonth && (
-        <button onClick={() => onMonthClick(activeMonth)} className="mt-2 text-xs text-indigo-500 font-medium">
-          Clear month filter
-        </button>
+        <button onClick={() => onMonthClick(activeMonth)} className="mt-2 text-xs text-indigo-500 font-medium">Clear month filter</button>
       )}
     </div>
   );
 }
 
 // ── Pie chart ──────────────────────────────────────────────────────────────
-function PieChart({ expenses, catFilter, onCatClick, onClearCats }: {
-  expenses: Expense[];
-  catFilter: string[];
-  onCatClick: (cat: string) => void;
-  onClearCats: () => void;
+function PieChart({ expenses, allCats, catFilter, onCatClick, onClearCats }: {
+  expenses: Expense[]; allCats: CatEntry[]; catFilter: string[];
+  onCatClick: (cat: string) => void; onClearCats: () => void;
 }) {
   const data = useMemo(() => {
     const m: Record<string, number> = {};
     expenses.forEach(e => { m[e.category] = (m[e.category] || 0) + e.usdAmount; });
     const total = Object.values(m).reduce((s, v) => s + v, 0);
     if (total === 0) return [];
-    const entries = Object.entries(m).sort((a, b) => b[1] - a[1]);
     let angle = -Math.PI / 2;
-    return entries.map(([cat, val]) => {
+    return Object.entries(m).sort((a, b) => b[1] - a[1]).map(([cat, val]) => {
       const sweep = Math.max((val / total) * 2 * Math.PI, 0.001);
-      const startAngle = angle;
-      angle += sweep;
-      return { cat, val, startAngle, endAngle: angle, pct: val / total };
+      const s = angle; angle += sweep;
+      return { cat, val, startAngle: s, endAngle: angle, pct: val / total };
     });
   }, [expenses]);
 
   const total = data.reduce((s, d) => s + d.val, 0);
   const cx = 100, cy = 100, r = 82, ri = 50;
-
-  const polar = (a: number, radius: number): [number, number] =>
-    [cx + radius * Math.cos(a), cy + radius * Math.sin(a)];
-
+  const polar = (a: number, rd: number): [number, number] => [cx + rd * Math.cos(a), cy + rd * Math.sin(a)];
   const slicePath = (sa: number, ea: number) => {
-    const [x1, y1] = polar(sa, r);
-    const [x2, y2] = polar(ea, r);
-    const [x3, y3] = polar(ea, ri);
-    const [x4, y4] = polar(sa, ri);
-    const lg = ea - sa > Math.PI ? 1 : 0;
-    return `M${x1},${y1} A${r},${r} 0 ${lg},1 ${x2},${y2} L${x3},${y3} A${ri},${ri} 0 ${lg},0 ${x4},${y4}Z`;
+    const [x1,y1]=polar(sa,r),[x2,y2]=polar(ea,r),[x3,y3]=polar(ea,ri),[x4,y4]=polar(sa,ri);
+    return `M${x1},${y1} A${r},${r} 0 ${ea-sa>Math.PI?1:0},1 ${x2},${y2} L${x3},${y3} A${ri},${ri} 0 ${ea-sa>Math.PI?1:0},0 ${x4},${y4}Z`;
   };
 
-  if (data.length === 0) {
-    return <div className="py-6 text-center text-sm text-gray-400">No expenses in this period</div>;
-  }
+  if (data.length === 0) return <div className="py-6 text-center text-sm text-gray-400">No expenses in this period</div>;
 
   return (
     <div>
       <div className="flex justify-center mb-3">
         <svg viewBox="0 0 200 200" width="170" height="170">
-          {data.map(d => {
-            const active = catFilter.length === 0 || catFilter.includes(d.cat);
-            return (
-              <path
-                key={d.cat}
-                d={slicePath(d.startAngle, d.endAngle)}
-                fill={catHex(d.cat)}
-                opacity={active ? 1 : 0.2}
-                stroke="white"
-                strokeWidth="2"
-                style={{ cursor: "pointer", transition: "opacity 0.15s" }}
-                onClick={() => onCatClick(d.cat)}
-              />
-            );
-          })}
+          {data.map(d => (
+            <path key={d.cat} d={slicePath(d.startAngle, d.endAngle)}
+              fill={catHex(d.cat, allCats)}
+              opacity={catFilter.length === 0 || catFilter.includes(d.cat) ? 1 : 0.2}
+              stroke="white" strokeWidth="2"
+              style={{ cursor: "pointer", transition: "opacity 0.15s" }}
+              onClick={() => onCatClick(d.cat)} />
+          ))}
           <text x="100" y="95" textAnchor="middle" fontSize="10" fill="#9ca3af" fontFamily="sans-serif">Total</text>
           <text x="100" y="113" textAnchor="middle" fontSize="14" fontWeight="700" fill="#1f2937" fontFamily="sans-serif">{fmtUsd(total)}</text>
         </svg>
       </div>
       <div className="space-y-0.5">
-        {data.map(d => {
-          const active = catFilter.length === 0 || catFilter.includes(d.cat);
-          return (
-            <button
-              key={d.cat}
-              onClick={() => onCatClick(d.cat)}
-              className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left transition-opacity active:scale-95 ${active ? "" : "opacity-30"}`}
-            >
-              <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: catHex(d.cat) }} />
-              <span className="text-xs text-gray-600 flex-1 truncate">{d.cat}</span>
-              <span className="text-xs font-semibold text-gray-800">{fmtUsd(d.val)}</span>
-              <span className="text-xs text-gray-400 w-8 text-right">{(d.pct * 100).toFixed(0)}%</span>
-            </button>
-          );
-        })}
+        {data.map(d => (
+          <button key={d.cat} onClick={() => onCatClick(d.cat)}
+            className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left transition-opacity active:scale-95 ${catFilter.length === 0 || catFilter.includes(d.cat) ? "" : "opacity-30"}`}>
+            <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: catHex(d.cat, allCats) }} />
+            <span className="text-xs text-gray-600 flex-1 truncate">{d.cat}</span>
+            <span className="text-xs font-semibold text-gray-800">{fmtUsd(d.val)}</span>
+            <span className="text-xs text-gray-400 w-8 text-right">{(d.pct * 100).toFixed(0)}%</span>
+          </button>
+        ))}
       </div>
       {catFilter.length > 0 && (
-        <button onClick={onClearCats} className="mt-2 text-xs text-indigo-500 font-medium">
-          Clear category filter
-        </button>
+        <button onClick={onClearCats} className="mt-2 text-xs text-indigo-500 font-medium">Clear category filter</button>
       )}
     </div>
   );
@@ -265,41 +237,35 @@ function PieChart({ expenses, catFilter, onCatClick, onClearCats }: {
 // ── Auth screen ────────────────────────────────────────────────────────────
 function AuthScreen() {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [confirm, setConfirm] = useState(false);
+  const [email, setEmail] = useState(""); const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false); const [error, setError] = useState(""); const [confirm, setConfirm] = useState(false);
 
   const handleSubmit = async () => {
     if (!email || !password) { setError("Email and password are required."); return; }
-    setLoading(true);
-    setError("");
+    setLoading(true); setError("");
     if (mode === "signup") {
       const { data, error: err } = await supabase.auth.signUp({ email, password });
-      if (err) { setError(err.message); }
-      else if (!data.session) { setConfirm(true); }
+      if (err) setError(err.message);
+      else if (!data.session) setConfirm(true);
     } else {
       const { error: err } = await supabase.auth.signInWithPassword({ email, password });
-      if (err) { setError(err.message === "Invalid login credentials" ? "Incorrect email or password." : err.message); }
+      if (err) setError(err.message === "Invalid login credentials" ? "Incorrect email or password." : err.message);
     }
     setLoading(false);
   };
 
-  if (confirm) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-        <div className="bg-white rounded-2xl border border-gray-100 p-8 max-w-sm w-full text-center space-y-3">
-          <div className="w-12 h-12 rounded-full bg-indigo-50 flex items-center justify-center mx-auto">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-          </div>
-          <p className="text-base font-semibold text-gray-800">Check your email</p>
-          <p className="text-sm text-gray-500">We sent a confirmation link to <span className="font-medium text-gray-700">{email}</span>. Click it to activate your account, then come back and sign in.</p>
-          <button onClick={() => { setConfirm(false); setMode("signin"); }} className="text-sm text-indigo-600 font-medium">Back to sign in</button>
+  if (confirm) return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+      <div className="bg-white rounded-2xl border border-gray-100 p-8 max-w-sm w-full text-center space-y-3">
+        <div className="w-12 h-12 rounded-full bg-indigo-50 flex items-center justify-center mx-auto">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
         </div>
+        <p className="text-base font-semibold text-gray-800">Check your email</p>
+        <p className="text-sm text-gray-500">We sent a confirmation link to <span className="font-medium text-gray-700">{email}</span>. Click it to activate your account, then come back and sign in.</p>
+        <button onClick={() => { setConfirm(false); setMode("signin"); }} className="text-sm text-indigo-600 font-medium">Back to sign in</button>
       </div>
-    );
-  }
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
@@ -311,33 +277,21 @@ function AuthScreen() {
         <div className="space-y-3">
           <div>
             <label className="block text-xs font-semibold uppercase tracking-widest text-gray-400 mb-1">Email</label>
-            <input
-              type="email" autoComplete="email" value={email}
-              onChange={e => setEmail(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && handleSubmit()}
-              className={inputCls} placeholder="you@example.com"
-            />
+            <input type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSubmit()} className={inputCls} placeholder="you@example.com" />
           </div>
           <div>
             <label className="block text-xs font-semibold uppercase tracking-widest text-gray-400 mb-1">Password</label>
-            <input
-              type="password" autoComplete={mode === "signup" ? "new-password" : "current-password"}
-              value={password} onChange={e => setPassword(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && handleSubmit()}
-              className={inputCls} placeholder="••••••••"
-            />
+            <input type="password" autoComplete={mode === "signup" ? "new-password" : "current-password"} value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSubmit()} className={inputCls} placeholder="••••••••" />
           </div>
           {error && <p className="text-xs text-red-600 font-medium">{error}</p>}
         </div>
-        <button
-          onClick={handleSubmit} disabled={loading}
+        <button onClick={handleSubmit} disabled={loading}
           className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-medium text-sm py-3 rounded-xl transition-all active:scale-95">
           {loading ? "Please wait…" : mode === "signin" ? "Sign in" : "Create account"}
         </button>
         <p className="text-center text-xs text-gray-500">
           {mode === "signin" ? "Don't have an account? " : "Already have an account? "}
-          <button onClick={() => { setMode(m => m === "signin" ? "signup" : "signin"); setError(""); }}
-            className="text-indigo-600 font-medium">
+          <button onClick={() => { setMode(m => m === "signin" ? "signup" : "signin"); setError(""); }} className="text-indigo-600 font-medium">
             {mode === "signin" ? "Sign up" : "Sign in"}
           </button>
         </p>
@@ -347,11 +301,9 @@ function AuthScreen() {
 }
 
 // ── Edit modal ─────────────────────────────────────────────────────────────
-function EditModal({ expense, merchants, onSave, onClose }: {
-  expense: Expense;
-  merchants: string[];
-  onSave: (updated: Expense) => void;
-  onClose: () => void;
+function EditModal({ expense, merchants, allCats, onSave, onClose }: {
+  expense: Expense; merchants: string[]; allCats: CatEntry[];
+  onSave: (updated: Expense) => void; onClose: () => void;
 }) {
   const [f, setF] = useState({
     date: expense.date, merchant: expense.merchant, merchantInput: "",
@@ -365,7 +317,7 @@ function EditModal({ expense, merchants, onSave, onClose }: {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-end" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="w-full bg-white rounded-t-2xl max-h-screen overflow-y-auto" style={{ paddingBottom: "env(safe-area-inset-bottom,16px)" }}>
+      <div className="w-full bg-white rounded-t-2xl max-h-[92vh] overflow-y-auto" style={{ paddingBottom: "env(safe-area-inset-bottom,16px)" }}>
         <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100">
           <h2 className="text-base font-semibold text-gray-800">Edit Expense</h2>
           <button onClick={onClose} className="text-gray-400 text-xl leading-none">×</button>
@@ -384,7 +336,7 @@ function EditModal({ expense, merchants, onSave, onClose }: {
           </Field>
           <Field label="Category">
             <div className="flex flex-wrap gap-2">
-              {CAT.map(c => (
+              {allCats.map(c => (
                 <button key={c.label} onClick={() => set("category", c.label)}
                   className={`px-2.5 py-1 rounded-full text-xs font-medium border ${f.category === c.label ? c.tw + " border-transparent ring-2 ring-indigo-300" : "bg-gray-50 text-gray-500 border-gray-200"}`}>
                   {c.label}
@@ -393,7 +345,7 @@ function EditModal({ expense, merchants, onSave, onClose }: {
             </div>
           </Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Amount (local)">
+            <Field label="Amount local">
               <input type="number" min="0" step="0.01" value={f.amount} onChange={e => set("amount", e.target.value)} className={inputCls} />
             </Field>
             <Field label="Rate → USD">
@@ -424,9 +376,9 @@ function EditModal({ expense, merchants, onSave, onClose }: {
           <button onClick={() => {
             const merchant = f.merchantInput || f.merchant;
             if (!merchant || !(parseFloat(f.amount) > 0)) return;
-            const usdBase2 = calcUsdBase(f.amount, f.rate);
-            const { fees: fe, tax: tx } = calcFeesAndTax(usdBase2, f.payment);
-            onSave({ ...expense, date: f.date, merchant, category: f.category, amount: parseFloat(f.amount), rate: parseFloat(f.rate) || 1, payment: f.payment, notes: f.notes, usdAmount: calcTotal(usdBase2, fe, tx) });
+            const ub = calcUsdBase(f.amount, f.rate);
+            const { fees: fe, tax: tx } = calcFeesAndTax(ub, f.payment);
+            onSave({ ...expense, date: f.date, merchant, category: f.category, amount: parseFloat(f.amount), rate: parseFloat(f.rate) || 1, payment: f.payment, notes: f.notes, usdAmount: calcTotal(ub, fe, tx) });
           }} className="w-full bg-indigo-600 text-white font-medium text-sm py-3 rounded-xl active:scale-95 transition-all">
             Save Changes
           </button>
@@ -438,82 +390,167 @@ function EditModal({ expense, merchants, onSave, onClose }: {
 
 // ── Main App ───────────────────────────────────────────────────────────────
 export default function App() {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser]       = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [view, setView] = useState("entry");
+  const [view, setView]       = useState("entry");
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
-  const [toast, setToast] = useState<{ msg: string; type: string } | null>(null);
+  const [toast, setToast]     = useState<{ msg: string; type: string } | null>(null);
+  const [customCatLabels, setCustomCatLabels] = useState<string[]>([]);
+  const [selectedGroup, setSelectedGroup]     = useState("");
+  const [allGroups, setAllGroups]             = useState<string[]>([]);
+  const [addingCat, setAddingCat]             = useState(false);
+  const [newCatName, setNewCatName]           = useState("");
+  const newCatInputRef = useRef<HTMLInputElement>(null);
+  const fileRef        = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState({
     date: nowZW(), merchant: "", merchantInput: "",
     category: "Food & Groceries", amount: "", rate: "1.00",
     payment: "Cash", notes: "", receiptName: "",
   });
-  const fileRef = useRef<HTMLInputElement>(null);
+
+  // ── Carousel drag state ──
+  const [dragX, setDragX]     = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const dragXRef     = useRef(0);
+  const touchStartX  = useRef(0);
+  const touchStartY  = useRef(0);
+  const dragDirRef   = useRef<"h" | "v" | null>(null);
+
+  const isPrivileged = profile?.role === "admin" || profile?.role === "super_admin";
+  const views = useMemo(() => {
+    const v = ["entry", "dashboard"];
+    if (isPrivileged) v.push("admin");
+    return v;
+  }, [isPrivileged]);
+  const currentIndex = Math.max(views.indexOf(view), 0);
+  const n = views.length;
+
+  // Stable refs for callbacks
+  const viewsRef        = useRef(views);
+  const viewRef         = useRef(view);
+  const currentIndexRef = useRef(currentIndex);
+  useEffect(() => { viewsRef.current = views; },        [views]);
+  useEffect(() => { viewRef.current = view; },          [view]);
+  useEffect(() => { currentIndexRef.current = currentIndex; }, [currentIndex]);
+
+  const allCats = useMemo(() => [
+    ...CAT,
+    ...customCatLabels.map((label, i) => ({ label, ...EXTRA_COLORS[i % EXTRA_COLORS.length] })),
+  ], [customCatLabels]);
 
   const merchants = useMemo(() => [...new Set(expenses.map(e => e.merchant))].sort(), [expenses]);
 
-  // Auth: check session on mount and listen for changes
+  // ── Load custom categories from localStorage ──
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("spendlog_custom_cats");
+      if (saved) setCustomCatLabels(JSON.parse(saved));
+    } catch {}
+  }, []);
+
+  // ── Auth ──
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
       setAuthLoading(false);
     });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
       setUser(session?.user ?? null);
       if (!session) setProfile(null);
     });
     return () => subscription.unsubscribe();
   }, []);
 
-  // Fetch current user's profile to determine role
   useEffect(() => {
     if (!user) return;
     supabase.from("profiles").select("*").eq("id", user.id).single()
       .then(({ data }) => { if (data) setProfile(data as Profile); });
   }, [user]);
 
-  // Load expenses once authenticated
+  // ── Load expenses (RLS handles group/role filtering; super_admin can add extra group filter) ──
   useEffect(() => {
     if (!user) return;
     setLoading(true);
-    supabase
-      .from("expenses")
-      .select("*")
-      .order("date", { ascending: false })
-      .then(async ({ data, error }) => {
-        if (!error && data) {
-          setExpenses((data as ExpenseRow[]).map(rowToExpense));
-          // Claim any legacy rows that have no owner
-          const unowned = (data as ExpenseRow[]).filter(r => r.user_id === null);
-          if (unowned.length > 0) {
-            await supabase.from("expenses").update({ user_id: user.id }).is("user_id", null);
-          }
+    let query = supabase.from("expenses").select("*").order("date", { ascending: false });
+    if (profile?.role === "super_admin" && selectedGroup) {
+      query = query.eq("user_group", selectedGroup);
+    }
+    query.then(async ({ data, error }) => {
+      if (!error && data) {
+        setExpenses((data as ExpenseRow[]).map(rowToExpense));
+        const unowned = (data as ExpenseRow[]).filter(r => r.user_id === null);
+        if (unowned.length > 0) {
+          await supabase.from("expenses").update({ user_id: user.id }).is("user_id", null);
         }
-        setLoading(false);
-      });
-  }, [user]);
+      }
+      setLoading(false);
+    });
+  }, [user, profile?.role, selectedGroup]);
 
-  // Swipe navigation
-  const touchStartX = useRef(0);
-  const touchStartY = useRef(0);
+  // ── Load all groups for super_admin switcher ──
+  useEffect(() => {
+    if (profile?.role !== "super_admin") return;
+    supabase.from("profiles").select("user_group").then(({ data }) => {
+      if (data) {
+        const groups = [...new Set((data as { user_group: string }[]).map(p => p.user_group).filter(Boolean))].sort();
+        setAllGroups(groups);
+      }
+    });
+  }, [profile?.role]);
+
+  // Reset to entry if current view is removed (e.g., role changes)
+  useEffect(() => {
+    if (!views.includes(view)) setView("entry");
+  }, [views, view]);
+
+  // Auto-focus add-category input
+  useEffect(() => {
+    if (addingCat) newCatInputRef.current?.focus();
+  }, [addingCat]);
+
+  // ── Touch handlers ──
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     touchStartX.current = e.touches[0].clientX;
     touchStartY.current = e.touches[0].clientY;
+    dragDirRef.current = null;
+    dragXRef.current = 0;
   }, []);
-  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
-    const dx = e.changedTouches[0].clientX - touchStartX.current;
-    const dy = e.changedTouches[0].clientY - touchStartY.current;
-    if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-      setView(dx > 0 ? "entry" : "dashboard");
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    const dx = e.touches[0].clientX - touchStartX.current;
+    const dy = e.touches[0].clientY - touchStartY.current;
+    if (!dragDirRef.current) {
+      if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+      dragDirRef.current = Math.abs(dx) > Math.abs(dy) ? "h" : "v";
     }
+    if (dragDirRef.current !== "h") return;
+    const ci = currentIndexRef.current;
+    const nn = viewsRef.current.length;
+    let eff = dx;
+    if ((ci === 0 && dx > 0) || (ci === nn - 1 && dx < 0)) eff = dx * 0.2;
+    dragXRef.current = eff;
+    setDragging(true);
+    setDragX(eff);
+  }, []);
+
+  const handleTouchEnd = useCallback(() => {
+    if (dragDirRef.current !== "h") { dragDirRef.current = null; return; }
+    dragDirRef.current = null;
+    const dx = dragXRef.current;
+    dragXRef.current = 0;
+    setDragging(false);
+    setDragX(0);
+    const ci = currentIndexRef.current;
+    const vs = viewsRef.current;
+    if (dx < -70 && ci < vs.length - 1) setView(vs[ci + 1]);
+    else if (dx > 70 && ci > 0) setView(vs[ci - 1]);
   }, []);
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
   const showToast = (msg: string, type = "success") => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 2500);
+    setToast({ msg, type }); setTimeout(() => setToast(null), 2500);
   };
 
   const usdBase = calcUsdBase(form.amount, form.rate);
@@ -524,49 +561,27 @@ export default function App() {
     const merchant = form.merchantInput || form.merchant;
     if (!merchant) { showToast("Merchant required", "error"); return; }
     if (!(parseFloat(form.amount) > 0)) { showToast("Amount must be > 0", "error"); return; }
-
     const ub = calcUsdBase(form.amount, form.rate);
     const { fees: fe, tax: tx } = calcFeesAndTax(ub, form.payment);
     const usdAmount = calcTotal(ub, fe, tx);
-
-    const { data, error } = await supabase
-      .from("expenses")
-      .insert({
-        date: form.date,
-        merchant,
-        category: form.category,
-        amount: parseFloat(form.amount),
-        rate: parseFloat(form.rate) || 1,
-        payment: form.payment,
-        notes: form.notes,
-        usd_amount: usdAmount,
-        user_id: user?.id,
-      })
-      .select()
-      .single();
-
+    const { data, error } = await supabase.from("expenses").insert({
+      date: form.date, merchant, category: form.category,
+      amount: parseFloat(form.amount), rate: parseFloat(form.rate) || 1,
+      payment: form.payment, notes: form.notes, usd_amount: usdAmount,
+      user_id: user?.id, user_group: profile?.user_group ?? "",
+    }).select().single();
     if (error) { showToast("Failed to save", "error"); return; }
-
     setExpenses(p => [rowToExpense(data as ExpenseRow), ...p]);
     setForm(f => ({ date: nowZW(), merchant: "", merchantInput: "", category: "Food & Groceries", amount: "", rate: "1.00", payment: f.payment, notes: "", receiptName: "" }));
     showToast("Expense saved!");
   };
 
   const handleUpdate = async (updated: Expense) => {
-    const { error } = await supabase
-      .from("expenses")
-      .update({
-        date: updated.date,
-        merchant: updated.merchant,
-        category: updated.category,
-        amount: updated.amount,
-        rate: updated.rate,
-        payment: updated.payment,
-        notes: updated.notes,
-        usd_amount: updated.usdAmount,
-      })
-      .eq("id", updated.id);
-
+    const { error } = await supabase.from("expenses").update({
+      date: updated.date, merchant: updated.merchant, category: updated.category,
+      amount: updated.amount, rate: updated.rate, payment: updated.payment,
+      notes: updated.notes, usd_amount: updated.usdAmount,
+    }).eq("id", updated.id);
     if (error) { showToast("Failed to update", "error"); return; }
     setExpenses(p => p.map(e => e.id === updated.id ? updated : e));
   };
@@ -577,185 +592,255 @@ export default function App() {
     setExpenses(p => p.filter(e => e.id !== id));
   };
 
-  if (authLoading) {
-    return <div className="min-h-screen bg-gray-50 flex items-center justify-center text-sm text-gray-400">Loading…</div>;
-  }
+  const confirmAddCat = () => {
+    const label = newCatName.trim();
+    if (!label || allCats.some(c => c.label.toLowerCase() === label.toLowerCase())) {
+      setAddingCat(false); setNewCatName(""); return;
+    }
+    const newLabels = [...customCatLabels, label];
+    setCustomCatLabels(newLabels);
+    try { localStorage.setItem("spendlog_custom_cats", JSON.stringify(newLabels)); } catch {}
+    set("category", label);
+    setAddingCat(false); setNewCatName("");
+  };
+
+  if (authLoading) return <div className="min-h-screen bg-gray-50 flex items-center justify-center text-sm text-gray-400">Loading…</div>;
   if (!user) return <AuthScreen />;
 
+  const tabLabels: Record<string, string> = { entry: "Add", dashboard: "History", admin: "Admin" };
+
   return (
-    <div
-      className="min-h-screen bg-gray-50"
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
-    >
+    <div style={{ height: "100dvh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       {toast && (
         <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-xl text-sm font-medium shadow-md
           ${toast.type === "error" ? "bg-red-50 text-red-700 border border-red-200" : "bg-green-50 text-green-700 border border-green-200"}`}>
           {toast.msg}
         </div>
       )}
-      <nav className="bg-white border-b border-gray-100 sticky top-0 z-40">
+
+      {/* Nav */}
+      <nav className="bg-white border-b border-gray-100 shrink-0 z-40">
         <div className="max-w-xl mx-auto px-4 flex items-center justify-between h-14">
-          <span className="text-indigo-600 font-semibold">Spendlog</span>
+          <span className="text-indigo-600 font-semibold text-sm">Spendlog</span>
           <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
-            {([["entry", "Add"], ["dashboard", "History"], ...(profile?.role === "admin" ? [["admin", "Admin"]] : [])] as [string, string][]).map(([v, label]) => (
+            {views.map(v => (
               <button key={v} onClick={() => setView(v)}
                 className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${view === v ? "bg-white text-indigo-600 shadow-sm" : "text-gray-500"}`}>
-                {label}
+                {tabLabels[v]}
               </button>
             ))}
           </div>
-          <button onClick={() => supabase.auth.signOut()}
-            className="text-xs text-gray-400 hover:text-gray-600 transition-colors">
+          <button onClick={() => supabase.auth.signOut()} className="text-xs text-gray-400 hover:text-gray-600 transition-colors">
             Sign out
           </button>
         </div>
-      </nav>
-      <div className="max-w-xl mx-auto px-4 py-5">
-        {view === "admin" && profile?.role === "admin" ? (
-          <AdminView />
-        ) : view === "entry" ? (
-          <div className="bg-white rounded-2xl border border-gray-100 p-5 space-y-4">
-            <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">New Expense</p>
-            <Field label="Date & Time" sub="(Zimbabwe time)">
-              <input type="datetime-local" value={form.date} onChange={e => set("date", e.target.value)} className={inputCls} />
-            </Field>
-            <Field label="Merchant">
-              <div className="flex gap-2">
-                <select value={form.merchant} onChange={e => {
-                    const m = e.target.value;
-                    set("merchant", m);
-                    set("merchantInput", "");
-                    if (m) {
-                      const last = expenses.find(ex => ex.merchant === m);
-                      if (last) set("category", last.category);
-                    }
-                  }} className={inputCls}>
-                  <option value="">— select —</option>
-                  {merchants.map(m => <option key={m}>{m}</option>)}
-                </select>
-                <input placeholder="Or type new…" value={form.merchantInput} onChange={e => { set("merchantInput", e.target.value); set("merchant", ""); }} className={inputCls} />
-              </div>
-            </Field>
-            <Field label="Category">
-              <div className="flex flex-wrap gap-2">
-                {CAT.map(c => (
-                  <button key={c.label} onClick={() => set("category", c.label)}
-                    className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all
-                      ${form.category === c.label ? c.tw + " border-transparent ring-2 ring-indigo-300" : "bg-gray-50 text-gray-500 border-gray-200"}`}>
-                    {c.label}
-                  </button>
-                ))}
-              </div>
-            </Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Amount (local)">
-                <input type="number" min="0" step="0.01" placeholder="0.00" value={form.amount} onChange={e => set("amount", e.target.value)} className={inputCls} />
-              </Field>
-              <Field label="Rate → USD">
-                <input type="number" min="0" step="0.01" value={form.rate} onChange={e => set("rate", e.target.value)} className={inputCls} />
-              </Field>
-            </div>
-            <Field label="Payment Method">
-              <div className="flex flex-wrap gap-2">
-                {PAYMENTS.map(m => (
-                  <button key={m} onClick={() => set("payment", m)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all
-                      ${form.payment === m ? "bg-indigo-600 text-white border-transparent" : "bg-gray-50 text-gray-600 border-gray-200"}`}>
-                    {m}
-                  </button>
-                ))}
-              </div>
-            </Field>
-            <div className="rounded-xl bg-gray-50 border border-gray-100 p-3 space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Breakdown</p>
-              <div className="grid grid-cols-3 gap-2 text-xs">
-                <div className="bg-white rounded-lg p-2 border border-gray-100">
-                  <p className="text-gray-400 mb-0.5">USD base</p>
-                  <p className="font-semibold text-gray-700">{fmtUsd(usdBase)}</p>
-                </div>
-                <div className="bg-white rounded-lg p-2 border border-gray-100">
-                  <p className="text-gray-400 mb-0.5">Fees</p>
-                  <p className="font-semibold text-gray-700">{fmtUsd(fees)}</p>
-                </div>
-                <div className="bg-white rounded-lg p-2 border border-gray-100">
-                  <p className="text-gray-400 mb-0.5">IMT Tax (2%)</p>
-                  <p className="font-semibold text-gray-700">{fmtUsd(tax)}</p>
-                </div>
-              </div>
-              <div className="w-full rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2 flex justify-between items-center">
-                <span className="text-xs font-semibold text-indigo-500">USD Total</span>
-                <span className="text-base font-bold text-indigo-700">{fmtUsd(usdTotal)}</span>
-              </div>
-            </div>
-            <Field label="Notes (optional)">
-              <textarea rows={2} placeholder="Any extra details…" value={form.notes} onChange={e => set("notes", e.target.value)} className={inputCls + " resize-none"} />
-            </Field>
-            <Field label="Receipt (optional)">
-              <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden"
-                onChange={e => { if (e.target.files?.[0]) set("receiptName", e.target.files[0].name); }} />
-              <button onClick={() => fileRef.current?.click()}
-                className="w-full flex items-center justify-center gap-2 rounded-lg border border-dashed border-indigo-300 bg-indigo-50 text-indigo-600 text-sm font-medium py-3 hover:bg-indigo-100 active:scale-95 transition-all">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
-                </svg>
-                {form.receiptName ? form.receiptName : "Upload receipt photo"}
-              </button>
-            </Field>
-            <button onClick={handleSave} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-sm py-3 rounded-xl transition-all active:scale-95">
-              Save Expense
-            </button>
+        {/* Super admin group switcher */}
+        {profile?.role === "super_admin" && (
+          <div className="max-w-xl mx-auto px-4 pb-2 flex items-center gap-2">
+            <span className="text-xs text-gray-400">Group:</span>
+            <select value={selectedGroup} onChange={e => setSelectedGroup(e.target.value)}
+              className="text-xs rounded-lg border border-gray-200 px-2 py-1 text-gray-600 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300">
+              <option value="">All groups</option>
+              {allGroups.map(g => <option key={g} value={g}>{g}</option>)}
+            </select>
           </div>
-        ) : loading ? (
-          <div className="py-20 text-center text-sm text-gray-400">Loading expenses…</div>
-        ) : (
-          <HistoryView
-            expenses={expenses}
-            merchants={merchants}
-            onUpdate={handleUpdate}
-            onDelete={handleDelete}
-            isAdmin={profile?.role === "admin"}
-          />
         )}
+      </nav>
+
+      {/* Slides */}
+      <div style={{ flex: 1, overflow: "hidden" }}>
+        <div
+          style={{
+            display: "flex", height: "100%",
+            width: `${n * 100}%`,
+            transform: `translateX(calc(-${currentIndex * (100 / n)}% + ${dragging ? dragX : 0}px))`,
+            transition: dragging ? "none" : "transform 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94)",
+            willChange: "transform",
+          }}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+        >
+          {/* ── ADD slide ─────────────────────────────────────────── */}
+          <div style={{ width: `${100 / n}%`, height: "100%", display: "flex", flexDirection: "column", touchAction: "pan-y" }}>
+            <div style={{ flex: 1, overflowY: "auto" }}>
+              <div className="max-w-xl mx-auto px-4 pt-5 pb-4 space-y-4">
+                <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">New Expense</p>
+                <Field label="Date & Time" sub="Zimbabwe time">
+                  <input type="datetime-local" value={form.date} onChange={e => set("date", e.target.value)} className={inputCls} />
+                </Field>
+                <Field label="Merchant">
+                  <div className="flex gap-2">
+                    <select value={form.merchant} onChange={e => {
+                      const m = e.target.value; set("merchant", m); set("merchantInput", "");
+                      if (m) { const last = expenses.find(ex => ex.merchant === m); if (last) set("category", last.category); }
+                    }} className={inputCls}>
+                      <option value="">— select —</option>
+                      {merchants.map(m => <option key={m}>{m}</option>)}
+                    </select>
+                    <input placeholder="Or type new…" value={form.merchantInput} onChange={e => { set("merchantInput", e.target.value); set("merchant", ""); }} className={inputCls} />
+                  </div>
+                </Field>
+                <Field label="Category">
+                  <div className="flex flex-wrap gap-2">
+                    {allCats.map(c => (
+                      <button key={c.label} onClick={() => set("category", c.label)}
+                        className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all
+                          ${form.category === c.label ? c.tw + " border-transparent ring-2 ring-indigo-300" : "bg-gray-50 text-gray-500 border-gray-200"}`}>
+                        {c.label}
+                      </button>
+                    ))}
+                    {addingCat ? (
+                      <div className="flex items-center gap-1">
+                        <input
+                          ref={newCatInputRef}
+                          value={newCatName}
+                          onChange={e => setNewCatName(e.target.value)}
+                          onKeyDown={e => { if (e.key === "Enter") confirmAddCat(); if (e.key === "Escape") { setAddingCat(false); setNewCatName(""); } }}
+                          maxLength={28}
+                          placeholder="New category…"
+                          className="w-32 rounded-full border border-indigo-300 px-2.5 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                        />
+                        <button onClick={confirmAddCat} className="text-xs text-indigo-600 font-medium px-1.5 py-1 rounded-full hover:bg-indigo-50 transition-colors">Add</button>
+                        <button onClick={() => { setAddingCat(false); setNewCatName(""); }} className="text-xs text-gray-400 px-1 py-1 rounded-full hover:bg-gray-50 transition-colors">✕</button>
+                      </div>
+                    ) : (
+                      <button onClick={() => setAddingCat(true)}
+                        className="px-2.5 py-1 rounded-full text-xs font-medium border border-dashed border-gray-300 text-gray-400 hover:border-indigo-300 hover:text-indigo-500 transition-colors">
+                        + Add
+                      </button>
+                    )}
+                  </div>
+                </Field>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Amount local">
+                    <input type="number" min="0" step="0.01" placeholder="0.00" value={form.amount} onChange={e => set("amount", e.target.value)} className={inputCls} />
+                  </Field>
+                  <Field label="Rate → USD">
+                    <input type="number" min="0" step="0.01" value={form.rate} onChange={e => set("rate", e.target.value)} className={inputCls} />
+                  </Field>
+                </div>
+                <Field label="Payment Method">
+                  <div className="flex flex-wrap gap-2">
+                    {PAYMENTS.map(m => (
+                      <button key={m} onClick={() => set("payment", m)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all
+                          ${form.payment === m ? "bg-indigo-600 text-white border-transparent" : "bg-gray-50 text-gray-600 border-gray-200"}`}>
+                        {m}
+                      </button>
+                    ))}
+                  </div>
+                </Field>
+                <div className="rounded-xl bg-gray-50 border border-gray-100 p-3 space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Breakdown</p>
+                  <div className="grid grid-cols-3 gap-2 text-xs">
+                    {[["USD base", fmtUsd(usdBase)], ["Fees", fmtUsd(fees)], ["IMT Tax (2%)", fmtUsd(tax)]].map(([l, v]) => (
+                      <div key={l} className="bg-white rounded-lg p-2 border border-gray-100">
+                        <p className="text-gray-400 mb-0.5">{l}</p>
+                        <p className="font-semibold text-gray-700">{v}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="w-full rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2 flex justify-between items-center">
+                    <span className="text-xs font-semibold text-indigo-500">USD Total</span>
+                    <span className="text-base font-bold text-indigo-700">{fmtUsd(usdTotal)}</span>
+                  </div>
+                </div>
+                <Field label="Notes">
+                  <textarea rows={2} placeholder="Any extra details…" value={form.notes} onChange={e => set("notes", e.target.value)} className={inputCls + " resize-none"} />
+                </Field>
+                <Field label="Receipt">
+                  <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden"
+                    onChange={e => { if (e.target.files?.[0]) set("receiptName", e.target.files[0].name); }} />
+                  <button onClick={() => fileRef.current?.click()}
+                    className="w-full flex items-center justify-center gap-2 rounded-lg border border-dashed border-indigo-300 bg-indigo-50 text-indigo-600 text-sm font-medium py-3 hover:bg-indigo-100 active:scale-95 transition-all">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    {form.receiptName || "Upload receipt photo"}
+                  </button>
+                </Field>
+              </div>
+            </div>
+            {/* Floating Save button */}
+            <div className="shrink-0 bg-white border-t border-gray-100 px-4 py-3" style={{ paddingBottom: "max(12px, env(safe-area-inset-bottom))" }}>
+              <div className="max-w-xl mx-auto">
+                <button onClick={handleSave}
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-sm py-3 rounded-xl transition-all active:scale-95">
+                  Save Expense
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* ── HISTORY slide ────────────────────────────────────── */}
+          <div style={{ width: `${100 / n}%`, height: "100%", overflowY: "auto", touchAction: "pan-y" }}>
+            <div className="max-w-xl mx-auto px-4 py-5">
+              {loading
+                ? <div className="py-20 text-center text-sm text-gray-400">Loading expenses…</div>
+                : <HistoryView
+                    expenses={expenses}
+                    merchants={merchants}
+                    allCats={allCats}
+                    onUpdate={handleUpdate}
+                    onDelete={handleDelete}
+                  />
+              }
+            </div>
+          </div>
+
+          {/* ── ADMIN slide ──────────────────────────────────────── */}
+          {isPrivileged && (
+            <div style={{ width: `${100 / n}%`, height: "100%", overflowY: "auto", touchAction: "pan-y" }}>
+              <div className="max-w-xl mx-auto px-4 py-5">
+                <AdminView currentProfile={profile} />
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
 // ── History view ───────────────────────────────────────────────────────────
-function HistoryView({ expenses, merchants, onUpdate, onDelete, isAdmin }: {
-  expenses: Expense[];
-  merchants: string[];
-  onUpdate: (updated: Expense) => void;
-  onDelete: (id: string) => void;
-  isAdmin?: boolean;
+function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete }: {
+  expenses: Expense[]; merchants: string[]; allCats: CatEntry[];
+  onUpdate: (updated: Expense) => void; onDelete: (id: string) => void;
 }) {
   const today = new Date();
   const defaultFrom = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
-  const defaultTo = today.toISOString().slice(0, 10);
+  const defaultTo   = today.toISOString().slice(0, 10);
 
-  const [catFilter, setCatFilter] = useState<string[]>([]);
-  const [pmFilter, setPmFilter] = useState("");
-  const [fromDate, setFromDate] = useState(defaultFrom);
-  const [toDate, setToDate] = useState(defaultTo);
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [editing, setEditing] = useState<Expense | null>(null);
+  const [catFilter, setCatFilter]   = useState<string[]>([]);
+  const [pmFilter, setPmFilter]     = useState("");
+  const [fromDate, setFromDate]     = useState(defaultFrom);
+  const [toDate, setToDate]         = useState(defaultTo);
+  const [expanded, setExpanded]     = useState<string | null>(null);
+  const [editing, setEditing]       = useState<Expense | null>(null);
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [activeMonth, setActiveMonth] = useState<string | null>(null);
 
+  const snapFrom = (raw: string) => {
+    if (!raw) return "";
+    const d = new Date(raw + "T12:00");
+    return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
+  };
+  const snapTo = (raw: string) => {
+    if (!raw) return "";
+    const d = new Date(raw + "T12:00");
+    return new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
+  };
+
   const handleMonthClick = useCallback((key: string) => {
     if (activeMonth === key) {
-      setActiveMonth(null);
-      setFromDate(defaultFrom);
-      setToDate(defaultTo);
+      setActiveMonth(null); setFromDate(defaultFrom); setToDate(defaultTo);
     } else {
       setActiveMonth(key);
       const [y, m] = key.split("-").map(Number);
-      const first = new Date(y, m - 1, 1);
-      const last = new Date(y, m, 0);
-      setFromDate(first.toISOString().slice(0, 10));
-      setToDate(last.toISOString().slice(0, 10));
+      setFromDate(new Date(y, m - 1, 1).toISOString().slice(0, 10));
+      setToDate(new Date(y, m, 0).toISOString().slice(0, 10));
     }
   }, [activeMonth, defaultFrom, defaultTo]);
 
@@ -763,19 +848,10 @@ function HistoryView({ expenses, merchants, onUpdate, onDelete, isAdmin }: {
     const now = new Date();
     const todayStr = now.toISOString().slice(0, 10);
     setActiveMonth(null);
-    if (preset === "this") {
-      setFromDate(new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10));
-      setToDate(todayStr);
-    } else if (preset === "last") {
-      setFromDate(new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 10));
-      setToDate(new Date(now.getFullYear(), now.getMonth(), 0).toISOString().slice(0, 10));
-    } else if (preset === "3m") {
-      setFromDate(new Date(now.getFullYear(), now.getMonth() - 2, 1).toISOString().slice(0, 10));
-      setToDate(todayStr);
-    } else if (preset === "all") {
-      setFromDate("");
-      setToDate("");
-    }
+    if (preset === "this")       { setFromDate(new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)); setToDate(todayStr); }
+    else if (preset === "last")  { setFromDate(new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 10)); setToDate(new Date(now.getFullYear(), now.getMonth(), 0).toISOString().slice(0, 10)); }
+    else if (preset === "3m")    { setFromDate(new Date(now.getFullYear(), now.getMonth() - 2, 1).toISOString().slice(0, 10)); setToDate(todayStr); }
+    else if (preset === "all")   { setFromDate(""); setToDate(""); }
   }, []);
 
   const filtered = useMemo(() => expenses.filter(e => {
@@ -786,7 +862,6 @@ function HistoryView({ expenses, merchants, onUpdate, onDelete, isAdmin }: {
     return true;
   }), [expenses, catFilter, pmFilter, fromDate, toDate]);
 
-  // For pie chart: apply all filters except category so the full breakdown is always visible
   const filteredNoCat = useMemo(() => expenses.filter(e => {
     if (pmFilter && e.payment !== pmFilter) return false;
     if (fromDate && e.date < fromDate) return false;
@@ -795,59 +870,36 @@ function HistoryView({ expenses, merchants, onUpdate, onDelete, isAdmin }: {
   }), [expenses, pmFilter, fromDate, toDate]);
 
   const totalUsd = filtered.reduce((s, e) => s + e.usdAmount, 0);
-  const topCat = useMemo(() => {
-    const m: Record<string, number> = {};
-    filtered.forEach(e => { m[e.category] = (m[e.category] || 0) + e.usdAmount; });
-    return Object.entries(m).sort((a, b) => b[1] - a[1])[0]?.[0] || "—";
-  }, [filtered]);
-  const topMerchant = useMemo(() => {
-    const m: Record<string, number> = {};
-    filtered.forEach(e => { m[e.merchant] = (m[e.merchant] || 0) + e.usdAmount; });
-    return Object.entries(m).sort((a, b) => b[1] - a[1])[0]?.[0] || "—";
-  }, [filtered]);
-
   const activeFilters = catFilter.length + (pmFilter ? 1 : 0);
 
-  const handlePieCatClick = useCallback((cat: string) => {
-    setCatFilter(prev => prev.length === 1 && prev[0] === cat ? [] : [cat]);
-  }, []);
-
   const exportCSV = () => {
-    const headers = ["Date", "Time", "Merchant", "Category", "Payment Method", "Amount (local)", "Rate", "USD Base", "Fees", "IMT Tax", "USD Total", "Notes"];
+    const headers = ["Date","Time","Merchant","Category","Payment Method","Amount (local)","Rate","USD Base","Fees","IMT Tax","USD Total","Notes"];
     const rows = filtered.map(e => {
       const ub = calcUsdBase(e.amount, e.rate);
       const { fees: fe, tax: tx } = calcFeesAndTax(ub, e.payment);
-      return [
-        fmtDate(e.date), fmtTime(e.date), `"${e.merchant}"`, `"${e.category}"`, `"${e.payment}"`,
+      return [fmtDate(e.date), fmtTime(e.date), `"${e.merchant}"`, `"${e.category}"`, `"${e.payment}"`,
         e.amount.toFixed(2), e.rate.toFixed(4), ub.toFixed(2), fe.toFixed(2), tx.toFixed(2),
-        e.usdAmount.toFixed(2), `"${(e.notes || "").replace(/"/g, '""')}"`
-      ];
+        e.usdAmount.toFixed(2), `"${(e.notes||"").replace(/"/g,'""')}"`];
     });
     const csv = [headers, ...rows].map(r => r.join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a"); a.href = url;
-    a.download = `spendlog-${fromDate || "all"}-to-${toDate || "all"}.csv`;
+    a.download = `spendlog-${fromDate||"all"}-to-${toDate||"all"}.csv`;
     a.click(); URL.revokeObjectURL(url);
   };
 
   return (
     <div className="space-y-4">
-      {isAdmin && (
-        <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5">
-          <span className="text-amber-600 text-xs">⬡</span>
-          <p className="text-xs font-medium text-amber-700">Admin view — showing all users' expenses</p>
-        </div>
-      )}
       {editing && (
-        <EditModal expense={editing} merchants={merchants}
+        <EditModal expense={editing} merchants={merchants} allCats={allCats}
           onSave={updated => { onUpdate(updated); setEditing(null); }}
           onClose={() => setEditing(null)} />
       )}
 
-      {/* Summary cards */}
+      {/* Summary — only total + count */}
       <div className="grid grid-cols-2 gap-3">
-        {[["Total Spent", fmtUsd(totalUsd)], ["Transactions", String(filtered.length)], ["Top Category", topCat], ["Top Merchant", topMerchant]].map(([l, v]) => (
+        {[["Total Spent", fmtUsd(totalUsd)], ["Transactions", String(filtered.length)]].map(([l, v]) => (
           <div key={l} className="bg-white rounded-xl border border-gray-100 p-4">
             <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-1">{l}</p>
             <p className="text-base font-semibold text-gray-800 truncate">{v}</p>
@@ -855,11 +907,11 @@ function HistoryView({ expenses, merchants, onUpdate, onDelete, isAdmin }: {
         ))}
       </div>
 
-      {/* Date Range — prominent, always visible */}
+      {/* Date Range */}
       <div className="bg-white rounded-2xl border border-gray-100 p-4">
         <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-3">Date Range</p>
         <div className="flex gap-2 mb-3 flex-wrap">
-          {([["this", "This month"], ["last", "Last month"], ["3m", "Last 3 months"], ["all", "All time"]] as const).map(([id, label]) => (
+          {([["this","This month"],["last","Last month"],["3m","Last 3 months"],["all","All time"]] as const).map(([id, label]) => (
             <button key={id} onClick={() => setPreset(id)}
               className="px-3 py-1.5 rounded-full text-xs font-medium bg-gray-50 border border-gray-200 text-gray-600 active:scale-95 transition-all hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-600">
               {label}
@@ -869,12 +921,16 @@ function HistoryView({ expenses, merchants, onUpdate, onDelete, isAdmin }: {
         <div className="flex gap-2 items-start">
           <div className="flex-1">
             <p className="text-xs text-gray-400 mb-1">From</p>
-            <input type="date" value={fromDate} onChange={e => { setFromDate(e.target.value); setActiveMonth(null); }} className={inputCls} />
+            <input type="date" value={fromDate}
+              onChange={e => { setFromDate(snapFrom(e.target.value)); setActiveMonth(null); }}
+              className={inputCls} />
           </div>
           <span className="text-gray-300 mt-8 text-lg">→</span>
           <div className="flex-1">
             <p className="text-xs text-gray-400 mb-1">To</p>
-            <input type="date" value={toDate} onChange={e => { setToDate(e.target.value); setActiveMonth(null); }} className={inputCls} />
+            <input type="date" value={toDate}
+              onChange={e => { setToDate(snapTo(e.target.value)); setActiveMonth(null); }}
+              className={inputCls} />
           </div>
         </div>
         {(fromDate || toDate) && (
@@ -887,24 +943,20 @@ function HistoryView({ expenses, merchants, onUpdate, onDelete, isAdmin }: {
       {/* Monthly Spend chart */}
       <div className="bg-white rounded-2xl border border-gray-100 p-4">
         <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-3">Monthly Spend — tap a bar to filter</p>
-        <StackedChart expenses={expenses} onMonthClick={handleMonthClick} activeMonth={activeMonth} />
+        <StackedChart expenses={expenses} allCats={allCats} onMonthClick={handleMonthClick} activeMonth={activeMonth} />
       </div>
 
-      {/* Spend by Category pie chart */}
+      {/* Category pie */}
       <div className="bg-white rounded-2xl border border-gray-100 p-4">
         <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-3">Spend by Category — tap to filter</p>
-        <PieChart
-          expenses={filteredNoCat}
-          catFilter={catFilter}
-          onCatClick={handlePieCatClick}
-          onClearCats={() => setCatFilter([])}
-        />
+        <PieChart expenses={filteredNoCat} allCats={allCats} catFilter={catFilter}
+          onCatClick={cat => setCatFilter(prev => prev.length === 1 && prev[0] === cat ? [] : [cat])}
+          onClearCats={() => setCatFilter([])} />
       </div>
 
-      {/* Filters — category & payment only */}
+      {/* Filters */}
       <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-        <button onClick={() => setShowFilters(p => !p)}
-          className="w-full flex items-center justify-between px-4 py-3 text-left">
+        <button onClick={() => setShowFilters(p => !p)} className="w-full flex items-center justify-between px-4 py-3 text-left">
           <span className="text-xs font-semibold uppercase tracking-widest text-gray-400">
             Filters {activeFilters > 0 && <span className="ml-1 px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-600 text-xs">{activeFilters}</span>}
           </span>
@@ -913,7 +965,7 @@ function HistoryView({ expenses, merchants, onUpdate, onDelete, isAdmin }: {
         {showFilters && (
           <div className="px-4 pb-4 space-y-3 border-t border-gray-50">
             <div className="flex flex-wrap gap-2 pt-3">
-              {CAT.map(c => (
+              {allCats.map(c => (
                 <button key={c.label} onClick={() => setCatFilter(f => f.includes(c.label) ? f.filter(x => x !== c.label) : [...f, c.label])}
                   className={`px-2.5 py-1 rounded-full text-xs font-medium border ${catFilter.includes(c.label) ? c.tw + " border-transparent" : "bg-gray-50 text-gray-500 border-gray-200"}`}>
                   {c.label}
@@ -936,7 +988,7 @@ function HistoryView({ expenses, merchants, onUpdate, onDelete, isAdmin }: {
       <button onClick={exportCSV}
         className="w-full flex items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-600 text-sm font-medium py-2.5 active:scale-95 transition-all">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
         </svg>
         Export {filtered.length} record{filtered.length !== 1 ? "s" : ""} as CSV
       </button>
@@ -960,7 +1012,7 @@ function HistoryView({ expenses, merchants, onUpdate, onDelete, isAdmin }: {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-medium text-gray-800">{e.merchant}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${catTw(e.category)}`}>{e.category}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${catTw(e.category, allCats)}`}>{e.category}</span>
                     </div>
                     <div className="flex gap-2 mt-0.5">
                       <span className="text-xs text-gray-400">{fmtDate(e.date)} {fmtTime(e.date)}</span>
@@ -992,9 +1044,7 @@ function HistoryView({ expenses, merchants, onUpdate, onDelete, isAdmin }: {
                     {e.notes && <p className="text-xs text-gray-500 italic">"{e.notes}"</p>}
                     <div className="flex gap-2">
                       <button onClick={() => setEditing(e)}
-                        className="flex-1 py-2 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-600 text-xs font-medium active:scale-95 transition-all">
-                        Edit
-                      </button>
+                        className="flex-1 py-2 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-600 text-xs font-medium active:scale-95 transition-all">Edit</button>
                       {confirmDel === e.id ? (
                         <>
                           <button onClick={() => { onDelete(e.id); setExpanded(null); setConfirmDel(null); }}
@@ -1019,14 +1069,18 @@ function HistoryView({ expenses, merchants, onUpdate, onDelete, isAdmin }: {
 }
 
 // ── Edit profile modal ─────────────────────────────────────────────────────
-function EditProfileModal({ profile, onSave, onClose, saving }: {
-  profile: Profile;
-  onSave: (p: Profile) => void;
-  onClose: () => void;
-  saving: boolean;
+function EditProfileModal({ profile, currentRole, onSave, onClose, saving }: {
+  profile: Profile; currentRole: Profile["role"];
+  onSave: (p: Profile) => void; onClose: () => void; saving: boolean;
 }) {
-  const [role, setRole] = useState<"admin" | "user">(profile.role);
+  const [role, setRole]   = useState<Profile["role"]>(profile.role);
   const [group, setGroup] = useState(profile.user_group);
+
+  const roleOptions: { value: Profile["role"]; label: string }[] = [
+    { value: "user", label: "User" },
+    { value: "admin", label: "Admin" },
+    ...(currentRole === "super_admin" ? [{ value: "super_admin" as Profile["role"], label: "Super Admin" }] : []),
+  ];
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-end" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
@@ -1041,18 +1095,17 @@ function EditProfileModal({ profile, onSave, onClose, saving }: {
             <p className="text-sm font-medium text-gray-700">{profile.email}</p>
           </div>
           <Field label="Role">
-            <div className="flex gap-2">
-              {(["user", "admin"] as const).map(r => (
-                <button key={r} onClick={() => setRole(r)}
-                  className={`px-5 py-2 rounded-lg text-sm font-medium border transition-all ${role === r ? "bg-indigo-600 text-white border-transparent" : "bg-gray-50 text-gray-600 border-gray-200"}`}>
-                  {r === "admin" ? "Admin" : "User"}
+            <div className="flex gap-2 flex-wrap">
+              {roleOptions.map(opt => (
+                <button key={opt.value} onClick={() => setRole(opt.value)}
+                  className={`px-5 py-2 rounded-lg text-sm font-medium border transition-all ${role === opt.value ? "bg-indigo-600 text-white border-transparent" : "bg-gray-50 text-gray-600 border-gray-200"}`}>
+                  {opt.label}
                 </button>
               ))}
             </div>
           </Field>
           <Field label="Group">
-            <input type="text" value={group} onChange={e => setGroup(e.target.value)}
-              className={inputCls} placeholder="e.g. Sales, Finance, Operations…" />
+            <input type="text" value={group} onChange={e => setGroup(e.target.value)} className={inputCls} placeholder="e.g. SwiftFox, BrightEagle…" />
           </Field>
           <button onClick={() => onSave({ ...profile, role, user_group: group })} disabled={saving}
             className="w-full bg-indigo-600 disabled:opacity-60 text-white font-medium text-sm py-3 rounded-xl active:scale-95 transition-all">
@@ -1065,30 +1118,55 @@ function EditProfileModal({ profile, onSave, onClose, saving }: {
 }
 
 // ── Admin view ─────────────────────────────────────────────────────────────
-function AdminView() {
-  const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [editing, setEditing] = useState<Profile | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [loadError, setLoadError] = useState(false);
+function AdminView({ currentProfile }: { currentProfile: Profile | null }) {
+  const [profiles, setProfiles]     = useState<Profile[]>([]);
+  const [editing, setEditing]       = useState<Profile | null>(null);
+  const [saving, setSaving]         = useState(false);
+  const [loadError, setLoadError]   = useState(false);
+  const [showAdd, setShowAdd]       = useState(false);
+  const [newEmail, setNewEmail]     = useState("");
+  const [newPassword, setNewPassword] = useState(() => randomPassword());
+  const [newGroup, setNewGroup]     = useState(() => randomGroup());
+  const [addingUser, setAddingUser] = useState(false);
+  const [addError, setAddError]     = useState("");
+  const [addedInfo, setAddedInfo]   = useState<{ email: string; password: string; group: string } | null>(null);
 
   useEffect(() => {
-    supabase.from("profiles").select("*").order("email")
-      .then(({ data, error }) => {
-        if (error) { setLoadError(true); return; }
-        if (data) setProfiles(data as Profile[]);
-      });
+    supabase.from("profiles").select("*").order("email").then(({ data, error }) => {
+      if (error) { setLoadError(true); return; }
+      if (data) setProfiles(data as Profile[]);
+    });
   }, []);
+
+  const reloadProfiles = async () => {
+    const { data } = await supabase.from("profiles").select("*").order("email");
+    if (data) setProfiles(data as Profile[]);
+  };
 
   const handleSave = async (updated: Profile) => {
     setSaving(true);
     const { error } = await supabase.from("profiles")
       .update({ role: updated.role, user_group: updated.user_group })
       .eq("id", updated.id);
-    if (!error) {
-      setProfiles(prev => prev.map(p => p.id === updated.id ? updated : p));
-      setEditing(null);
-    }
+    if (!error) { setProfiles(prev => prev.map(p => p.id === updated.id ? updated : p)); setEditing(null); }
     setSaving(false);
+  };
+
+  const handleAddUser = async () => {
+    if (!newEmail || !newPassword) { setAddError("Email and password are required."); return; }
+    setAddingUser(true); setAddError("");
+    const { data, error } = await supabase.auth.signUp({ email: newEmail, password: newPassword });
+    if (error) { setAddError(error.message); setAddingUser(false); return; }
+    if (data.user) {
+      await supabase.from("profiles").upsert({
+        id: data.user.id, email: newEmail, role: "user", user_group: newGroup,
+      }, { onConflict: "id" });
+      await reloadProfiles();
+      setAddedInfo({ email: newEmail, password: newPassword, group: newGroup });
+      setNewEmail(""); setNewPassword(randomPassword()); setNewGroup(randomGroup());
+      setShowAdd(false);
+    }
+    setAddingUser(false);
   };
 
   return (
@@ -1096,11 +1174,67 @@ function AdminView() {
       {editing && (
         <EditProfileModal
           profile={editing}
+          currentRole={currentProfile?.role ?? "admin"}
           onSave={handleSave}
           onClose={() => setEditing(null)}
           saving={saving}
         />
       )}
+
+      {/* Newly created user credentials */}
+      {addedInfo && (
+        <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 space-y-1">
+          <p className="text-xs font-semibold text-green-700">User created — share these credentials:</p>
+          <p className="text-xs text-green-700">Email: <span className="font-mono font-medium">{addedInfo.email}</span></p>
+          <p className="text-xs text-green-700">Password: <span className="font-mono font-medium">{addedInfo.password}</span></p>
+          <p className="text-xs text-green-700">Group: <span className="font-medium">{addedInfo.group}</span></p>
+          <button onClick={() => setAddedInfo(null)} className="text-xs text-green-600 font-medium mt-1">Dismiss</button>
+        </div>
+      )}
+
+      {/* Add user form */}
+      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+        <button onClick={() => { setShowAdd(p => !p); setAddError(""); }}
+          className="w-full flex items-center justify-between px-4 py-3 text-left">
+          <span className="text-xs font-semibold uppercase tracking-widest text-gray-400">Add User</span>
+          <span className={`text-gray-300 text-xs transition-transform ${showAdd ? "rotate-45" : ""}`}>+</span>
+        </button>
+        {showAdd && (
+          <div className="px-4 pb-4 border-t border-gray-50 space-y-3 pt-3">
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-widest text-gray-400 mb-1">Email</label>
+              <input type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} className={inputCls} placeholder="user@example.com" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-widest text-gray-400 mb-1">Temp Password</label>
+              <div className="flex gap-2">
+                <input type="text" value={newPassword} onChange={e => setNewPassword(e.target.value)} className={inputCls} />
+                <button onClick={() => setNewPassword(randomPassword())}
+                  className="shrink-0 px-3 py-2 rounded-lg border border-gray-200 text-xs text-gray-500 hover:bg-gray-50 transition-colors">
+                  Regen
+                </button>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-widest text-gray-400 mb-1">Group</label>
+              <div className="flex gap-2">
+                <input type="text" value={newGroup} onChange={e => setNewGroup(e.target.value)} className={inputCls} placeholder="e.g. SwiftFox" />
+                <button onClick={() => setNewGroup(randomGroup())}
+                  className="shrink-0 px-3 py-2 rounded-lg border border-gray-200 text-xs text-gray-500 hover:bg-gray-50 transition-colors">
+                  Random
+                </button>
+              </div>
+            </div>
+            {addError && <p className="text-xs text-red-600 font-medium">{addError}</p>}
+            <button onClick={handleAddUser} disabled={addingUser}
+              className="w-full bg-indigo-600 disabled:opacity-60 text-white font-medium text-sm py-3 rounded-xl active:scale-95 transition-all">
+              {addingUser ? "Creating…" : "Create User"}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* User list */}
       <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 flex justify-between items-center">
           <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Users</p>
@@ -1116,14 +1250,13 @@ function AdminView() {
                 <p className="text-xs text-gray-400 mt-0.5">{p.user_group || "No group"}</p>
               </div>
               <span className={`text-xs px-2.5 py-1 rounded-full font-medium shrink-0 ${
-                p.role === "admin" ? "bg-indigo-100 text-indigo-700" : "bg-gray-100 text-gray-600"
+                p.role === "super_admin" ? "bg-purple-100 text-purple-700"
+                : p.role === "admin"     ? "bg-indigo-100 text-indigo-700"
+                :                          "bg-gray-100 text-gray-600"
               }`}>
-                {p.role === "admin" ? "Admin" : "User"}
+                {p.role === "super_admin" ? "Super Admin" : p.role === "admin" ? "Admin" : "User"}
               </span>
-              <button onClick={() => setEditing(p)}
-                className="text-xs text-indigo-500 font-medium shrink-0 hover:text-indigo-700 transition-colors">
-                Edit
-              </button>
+              <button onClick={() => setEditing(p)} className="text-xs text-indigo-500 font-medium shrink-0 hover:text-indigo-700 transition-colors">Edit</button>
             </div>
           ))}
         </div>
