@@ -871,6 +871,7 @@ function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete, portalT
   const [showFilters, setShowFilters] = useState(false);
   const [activeMonth, setActiveMonth] = useState<string | null>(null);
   const [displayCount, setDisplayCount] = useState(20);
+  const [search, setSearch] = useState("");
   const sentinelRef = useRef<HTMLDivElement>(null);
 
   const handleMonthClick = useCallback((key: string) => {
@@ -895,13 +896,17 @@ function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete, portalT
     else if (preset === "all")  { setFromDate(""); setToDate(""); }
   }, []);
 
-  const filtered = useMemo(() => expenses.filter(e => {
-    if (catFilter.length && !catFilter.includes(e.category)) return false;
-    if (pmFilter && e.payment !== pmFilter) return false;
-    if (fromDate && e.date < fromDate) return false;
-    if (toDate && e.date > toDate + "T23:59") return false;
-    return true;
-  }), [expenses, catFilter, pmFilter, fromDate, toDate]);
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return expenses.filter(e => {
+      if (catFilter.length && !catFilter.includes(e.category)) return false;
+      if (pmFilter && e.payment !== pmFilter) return false;
+      if (fromDate && e.date < fromDate) return false;
+      if (toDate && e.date > toDate + "T23:59") return false;
+      if (q && !e.merchant.toLowerCase().includes(q) && !e.notes.toLowerCase().includes(q) && !e.category.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [expenses, catFilter, pmFilter, fromDate, toDate, search]);
 
   useEffect(() => { setDisplayCount(20); }, [filtered]);
 
@@ -1061,9 +1066,26 @@ function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete, portalT
 
       {/* Expense list */}
       <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100 flex justify-between">
-          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Expenses</p>
-          <span className="text-xs text-gray-400">{filtered.length} records</span>
+        <div className="px-4 py-3 border-b border-gray-100 space-y-2">
+          <div className="flex justify-between items-center">
+            <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Expenses</p>
+            <span className="text-xs text-gray-400">{filtered.length} records</span>
+          </div>
+          <div className="relative">
+            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-300" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search merchant, category, notes…"
+              className="w-full pl-8 pr-8 py-1.5 text-sm bg-gray-50 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 placeholder:text-gray-400"
+            />
+            {search && (
+              <button onClick={() => setSearch("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            )}
+          </div>
         </div>
         {filtered.length === 0 && <div className="py-10 text-center text-sm text-gray-400">No expenses match your filters.</div>}
         <div className="divide-y divide-gray-50" id="expense-list">
