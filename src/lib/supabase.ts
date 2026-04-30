@@ -16,4 +16,5 @@ export interface ExpenseRow {
   notes: string;
   usd_amount: number;
   created_at: string;
+  user_id: string | null;
 }

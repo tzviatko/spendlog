@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from "react";
+import type { User } from "@supabase/supabase-js";
 import { supabase, type ExpenseRow } from "./lib/supabase";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -254,6 +255,90 @@ function PieChart({ expenses, catFilter, onCatClick, onClearCats }: {
   );
 }
 
+// ── Auth screen ────────────────────────────────────────────────────────────
+function AuthScreen() {
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [confirm, setConfirm] = useState(false);
+
+  const handleSubmit = async () => {
+    if (!email || !password) { setError("Email and password are required."); return; }
+    setLoading(true);
+    setError("");
+    if (mode === "signup") {
+      const { data, error: err } = await supabase.auth.signUp({ email, password });
+      if (err) { setError(err.message); }
+      else if (!data.session) { setConfirm(true); }
+    } else {
+      const { error: err } = await supabase.auth.signInWithPassword({ email, password });
+      if (err) { setError(err.message === "Invalid login credentials" ? "Incorrect email or password." : err.message); }
+    }
+    setLoading(false);
+  };
+
+  if (confirm) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+        <div className="bg-white rounded-2xl border border-gray-100 p-8 max-w-sm w-full text-center space-y-3">
+          <div className="w-12 h-12 rounded-full bg-indigo-50 flex items-center justify-center mx-auto">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+          </div>
+          <p className="text-base font-semibold text-gray-800">Check your email</p>
+          <p className="text-sm text-gray-500">We sent a confirmation link to <span className="font-medium text-gray-700">{email}</span>. Click it to activate your account, then come back and sign in.</p>
+          <button onClick={() => { setConfirm(false); setMode("signin"); }} className="text-sm text-indigo-600 font-medium">Back to sign in</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+      <div className="bg-white rounded-2xl border border-gray-100 p-6 max-w-sm w-full space-y-5">
+        <div className="text-center space-y-1">
+          <p className="text-xl font-bold text-indigo-600">Spendlog</p>
+          <p className="text-sm text-gray-500">{mode === "signin" ? "Sign in to your account" : "Create your account"}</p>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-widest text-gray-400 mb-1">Email</label>
+            <input
+              type="email" autoComplete="email" value={email}
+              onChange={e => setEmail(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleSubmit()}
+              className={inputCls} placeholder="you@example.com"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-widest text-gray-400 mb-1">Password</label>
+            <input
+              type="password" autoComplete={mode === "signup" ? "new-password" : "current-password"}
+              value={password} onChange={e => setPassword(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleSubmit()}
+              className={inputCls} placeholder="••••••••"
+            />
+          </div>
+          {error && <p className="text-xs text-red-600 font-medium">{error}</p>}
+        </div>
+        <button
+          onClick={handleSubmit} disabled={loading}
+          className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-medium text-sm py-3 rounded-xl transition-all active:scale-95">
+          {loading ? "Please wait…" : mode === "signin" ? "Sign in" : "Create account"}
+        </button>
+        <p className="text-center text-xs text-gray-500">
+          {mode === "signin" ? "Don't have an account? " : "Already have an account? "}
+          <button onClick={() => { setMode(m => m === "signin" ? "signup" : "signin"); setError(""); }}
+            className="text-indigo-600 font-medium">
+            {mode === "signin" ? "Sign up" : "Sign in"}
+          </button>
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ── Edit modal ─────────────────────────────────────────────────────────────
 function EditModal({ expense, merchants, onSave, onClose }: {
   expense: Expense;
@@ -346,6 +431,8 @@ function EditModal({ expense, merchants, onSave, onClose }: {
 
 // ── Main App ───────────────────────────────────────────────────────────────
 export default function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [view, setView] = useState("entry");
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
@@ -359,16 +446,38 @@ export default function App() {
 
   const merchants = useMemo(() => [...new Set(expenses.map(e => e.merchant))].sort(), [expenses]);
 
+  // Auth: check session on mount and listen for changes
   useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setAuthLoading(false);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Load expenses once authenticated
+  useEffect(() => {
+    if (!user) return;
+    setLoading(true);
     supabase
       .from("expenses")
       .select("*")
       .order("date", { ascending: false })
-      .then(({ data, error }) => {
-        if (!error && data) setExpenses((data as ExpenseRow[]).map(rowToExpense));
+      .then(async ({ data, error }) => {
+        if (!error && data) {
+          setExpenses((data as ExpenseRow[]).map(rowToExpense));
+          // Claim any legacy rows that have no owner
+          const unowned = (data as ExpenseRow[]).filter(r => r.user_id === null);
+          if (unowned.length > 0) {
+            await supabase.from("expenses").update({ user_id: user.id }).is("user_id", null);
+          }
+        }
         setLoading(false);
       });
-  }, []);
+  }, [user]);
 
   // Swipe navigation
   const touchStartX = useRef(0);
@@ -415,6 +524,7 @@ export default function App() {
         payment: form.payment,
         notes: form.notes,
         usd_amount: usdAmount,
+        user_id: user?.id,
       })
       .select()
       .single();
@@ -451,6 +561,11 @@ export default function App() {
     setExpenses(p => p.filter(e => e.id !== id));
   };
 
+  if (authLoading) {
+    return <div className="min-h-screen bg-gray-50 flex items-center justify-center text-sm text-gray-400">Loading…</div>;
+  }
+  if (!user) return <AuthScreen />;
+
   return (
     <div
       className="min-h-screen bg-gray-50"
@@ -474,6 +589,10 @@ export default function App() {
               </button>
             ))}
           </div>
+          <button onClick={() => supabase.auth.signOut()}
+            className="text-xs text-gray-400 hover:text-gray-600 transition-colors">
+            Sign out
+          </button>
         </div>
       </nav>
       <div className="max-w-xl mx-auto px-4 py-5">
@@ -485,7 +604,15 @@ export default function App() {
             </Field>
             <Field label="Merchant">
               <div className="flex gap-2">
-                <select value={form.merchant} onChange={e => { set("merchant", e.target.value); set("merchantInput", ""); }} className={inputCls}>
+                <select value={form.merchant} onChange={e => {
+                    const m = e.target.value;
+                    set("merchant", m);
+                    set("merchantInput", "");
+                    if (m) {
+                      const last = expenses.find(ex => ex.merchant === m);
+                      if (last) set("category", last.category);
+                    }
+                  }} className={inputCls}>
                   <option value="">— select —</option>
                   {merchants.map(m => <option key={m}>{m}</option>)}
                 </select>
