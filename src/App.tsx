@@ -67,6 +67,7 @@ const calcTotal = (usdBase: number, fees: number, tax: number) =>
 const fmtUsd = (n: number) => "$" + (n || 0).toFixed(2);
 const fmtDate = (s: string) => new Date(s).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 const fmtTime = (s: string) => new Date(s).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+const fmtDateLabel = (d: string) => d ? new Date(d + "T12:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "";
 
 const rowToExpense = (row: ExpenseRow): Expense => ({
   id: row.id,
@@ -157,6 +158,96 @@ function StackedChart({ expenses, onMonthClick, activeMonth }: {
       {activeMonth && (
         <button onClick={() => onMonthClick(activeMonth)} className="mt-2 text-xs text-indigo-500 font-medium">
           Clear month filter
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Pie chart ──────────────────────────────────────────────────────────────
+function PieChart({ expenses, catFilter, onCatClick, onClearCats }: {
+  expenses: Expense[];
+  catFilter: string[];
+  onCatClick: (cat: string) => void;
+  onClearCats: () => void;
+}) {
+  const data = useMemo(() => {
+    const m: Record<string, number> = {};
+    expenses.forEach(e => { m[e.category] = (m[e.category] || 0) + e.usdAmount; });
+    const total = Object.values(m).reduce((s, v) => s + v, 0);
+    if (total === 0) return [];
+    const entries = Object.entries(m).sort((a, b) => b[1] - a[1]);
+    let angle = -Math.PI / 2;
+    return entries.map(([cat, val]) => {
+      const sweep = Math.max((val / total) * 2 * Math.PI, 0.001);
+      const startAngle = angle;
+      angle += sweep;
+      return { cat, val, startAngle, endAngle: angle, pct: val / total };
+    });
+  }, [expenses]);
+
+  const total = data.reduce((s, d) => s + d.val, 0);
+  const cx = 100, cy = 100, r = 82, ri = 50;
+
+  const polar = (a: number, radius: number): [number, number] =>
+    [cx + radius * Math.cos(a), cy + radius * Math.sin(a)];
+
+  const slicePath = (sa: number, ea: number) => {
+    const [x1, y1] = polar(sa, r);
+    const [x2, y2] = polar(ea, r);
+    const [x3, y3] = polar(ea, ri);
+    const [x4, y4] = polar(sa, ri);
+    const lg = ea - sa > Math.PI ? 1 : 0;
+    return `M${x1},${y1} A${r},${r} 0 ${lg},1 ${x2},${y2} L${x3},${y3} A${ri},${ri} 0 ${lg},0 ${x4},${y4}Z`;
+  };
+
+  if (data.length === 0) {
+    return <div className="py-6 text-center text-sm text-gray-400">No expenses in this period</div>;
+  }
+
+  return (
+    <div>
+      <div className="flex justify-center mb-3">
+        <svg viewBox="0 0 200 200" width="170" height="170">
+          {data.map(d => {
+            const active = catFilter.length === 0 || catFilter.includes(d.cat);
+            return (
+              <path
+                key={d.cat}
+                d={slicePath(d.startAngle, d.endAngle)}
+                fill={catHex(d.cat)}
+                opacity={active ? 1 : 0.2}
+                stroke="white"
+                strokeWidth="2"
+                style={{ cursor: "pointer", transition: "opacity 0.15s" }}
+                onClick={() => onCatClick(d.cat)}
+              />
+            );
+          })}
+          <text x="100" y="95" textAnchor="middle" fontSize="10" fill="#9ca3af" fontFamily="sans-serif">Total</text>
+          <text x="100" y="113" textAnchor="middle" fontSize="14" fontWeight="700" fill="#1f2937" fontFamily="sans-serif">{fmtUsd(total)}</text>
+        </svg>
+      </div>
+      <div className="space-y-0.5">
+        {data.map(d => {
+          const active = catFilter.length === 0 || catFilter.includes(d.cat);
+          return (
+            <button
+              key={d.cat}
+              onClick={() => onCatClick(d.cat)}
+              className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left transition-opacity active:scale-95 ${active ? "" : "opacity-30"}`}
+            >
+              <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: catHex(d.cat) }} />
+              <span className="text-xs text-gray-600 flex-1 truncate">{d.cat}</span>
+              <span className="text-xs font-semibold text-gray-800">{fmtUsd(d.val)}</span>
+              <span className="text-xs text-gray-400 w-8 text-right">{(d.pct * 100).toFixed(0)}%</span>
+            </button>
+          );
+        })}
+      </div>
+      {catFilter.length > 0 && (
+        <button onClick={onClearCats} className="mt-2 text-xs text-indigo-500 font-medium">
+          Clear category filter
         </button>
       )}
     </div>
@@ -279,6 +370,21 @@ export default function App() {
       });
   }, []);
 
+  // Swipe navigation
+  const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+  }, []);
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    const dx = e.changedTouches[0].clientX - touchStartX.current;
+    const dy = e.changedTouches[0].clientY - touchStartY.current;
+    if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      setView(dx > 0 ? "entry" : "dashboard");
+    }
+  }, []);
+
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
   const showToast = (msg: string, type = "success") => {
     setToast({ msg, type });
@@ -346,7 +452,11 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div
+      className="min-h-screen bg-gray-50"
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+    >
       {toast && (
         <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-xl text-sm font-medium shadow-md
           ${toast.type === "error" ? "bg-red-50 text-red-700 border border-red-200" : "bg-green-50 text-green-700 border border-green-200"}`}>
@@ -473,9 +583,9 @@ function HistoryView({ expenses, merchants, onUpdate, onDelete }: {
   onUpdate: (updated: Expense) => void;
   onDelete: (id: string) => void;
 }) {
-  const currentMonthStart = new Date(); currentMonthStart.setDate(1);
-  const defaultFrom = currentMonthStart.toISOString().slice(0, 10);
-  const defaultTo = new Date().toISOString().slice(0, 10);
+  const today = new Date();
+  const defaultFrom = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
+  const defaultTo = today.toISOString().slice(0, 10);
 
   const [catFilter, setCatFilter] = useState<string[]>([]);
   const [pmFilter, setPmFilter] = useState("");
@@ -502,6 +612,25 @@ function HistoryView({ expenses, merchants, onUpdate, onDelete }: {
     }
   }, [activeMonth, defaultFrom, defaultTo]);
 
+  const setPreset = useCallback((preset: string) => {
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+    setActiveMonth(null);
+    if (preset === "this") {
+      setFromDate(new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10));
+      setToDate(todayStr);
+    } else if (preset === "last") {
+      setFromDate(new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 10));
+      setToDate(new Date(now.getFullYear(), now.getMonth(), 0).toISOString().slice(0, 10));
+    } else if (preset === "3m") {
+      setFromDate(new Date(now.getFullYear(), now.getMonth() - 2, 1).toISOString().slice(0, 10));
+      setToDate(todayStr);
+    } else if (preset === "all") {
+      setFromDate("");
+      setToDate("");
+    }
+  }, []);
+
   const filtered = useMemo(() => expenses.filter(e => {
     if (catFilter.length && !catFilter.includes(e.category)) return false;
     if (pmFilter && e.payment !== pmFilter) return false;
@@ -509,6 +638,14 @@ function HistoryView({ expenses, merchants, onUpdate, onDelete }: {
     if (toDate && e.date > toDate + "T23:59") return false;
     return true;
   }), [expenses, catFilter, pmFilter, fromDate, toDate]);
+
+  // For pie chart: apply all filters except category so the full breakdown is always visible
+  const filteredNoCat = useMemo(() => expenses.filter(e => {
+    if (pmFilter && e.payment !== pmFilter) return false;
+    if (fromDate && e.date < fromDate) return false;
+    if (toDate && e.date > toDate + "T23:59") return false;
+    return true;
+  }), [expenses, pmFilter, fromDate, toDate]);
 
   const totalUsd = filtered.reduce((s, e) => s + e.usdAmount, 0);
   const topCat = useMemo(() => {
@@ -522,14 +659,23 @@ function HistoryView({ expenses, merchants, onUpdate, onDelete }: {
     return Object.entries(m).sort((a, b) => b[1] - a[1])[0]?.[0] || "—";
   }, [filtered]);
 
-  const activeFilters = catFilter.length + (pmFilter ? 1 : 0) + (fromDate ? 1 : 0) + (toDate ? 1 : 0);
+  const activeFilters = catFilter.length + (pmFilter ? 1 : 0);
+
+  const handlePieCatClick = useCallback((cat: string) => {
+    setCatFilter(prev => prev.length === 1 && prev[0] === cat ? [] : [cat]);
+  }, []);
 
   const exportCSV = () => {
-    const headers = ["Date", "Time", "Merchant", "Category", "Payment Method", "Amount (local)", "Rate", "USD Total", "Notes"];
-    const rows = filtered.map(e => [
-      fmtDate(e.date), fmtTime(e.date), `"${e.merchant}"`, `"${e.category}"`, `"${e.payment}"`,
-      e.amount.toFixed(2), e.rate.toFixed(4), e.usdAmount.toFixed(2), `"${(e.notes || "").replace(/"/g, '""')}"`
-    ]);
+    const headers = ["Date", "Time", "Merchant", "Category", "Payment Method", "Amount (local)", "Rate", "USD Base", "Fees", "IMT Tax", "USD Total", "Notes"];
+    const rows = filtered.map(e => {
+      const ub = calcUsdBase(e.amount, e.rate);
+      const { fees: fe, tax: tx } = calcFeesAndTax(ub, e.payment);
+      return [
+        fmtDate(e.date), fmtTime(e.date), `"${e.merchant}"`, `"${e.category}"`, `"${e.payment}"`,
+        e.amount.toFixed(2), e.rate.toFixed(4), ub.toFixed(2), fe.toFixed(2), tx.toFixed(2),
+        e.usdAmount.toFixed(2), `"${(e.notes || "").replace(/"/g, '""')}"`
+      ];
+    });
     const csv = [headers, ...rows].map(r => r.join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -545,6 +691,8 @@ function HistoryView({ expenses, merchants, onUpdate, onDelete }: {
           onSave={updated => { onUpdate(updated); setEditing(null); }}
           onClose={() => setEditing(null)} />
       )}
+
+      {/* Summary cards */}
       <div className="grid grid-cols-2 gap-3">
         {[["Total Spent", fmtUsd(totalUsd)], ["Transactions", String(filtered.length)], ["Top Category", topCat], ["Top Merchant", topMerchant]].map(([l, v]) => (
           <div key={l} className="bg-white rounded-xl border border-gray-100 p-4">
@@ -553,10 +701,54 @@ function HistoryView({ expenses, merchants, onUpdate, onDelete }: {
           </div>
         ))}
       </div>
+
+      {/* Date Range — prominent, always visible */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-4">
+        <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-3">Date Range</p>
+        <div className="flex gap-2 mb-3 flex-wrap">
+          {([["this", "This month"], ["last", "Last month"], ["3m", "Last 3 months"], ["all", "All time"]] as const).map(([id, label]) => (
+            <button key={id} onClick={() => setPreset(id)}
+              className="px-3 py-1.5 rounded-full text-xs font-medium bg-gray-50 border border-gray-200 text-gray-600 active:scale-95 transition-all hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-600">
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-2 items-start">
+          <div className="flex-1">
+            <p className="text-xs text-gray-400 mb-1">From</p>
+            <input type="date" value={fromDate} onChange={e => { setFromDate(e.target.value); setActiveMonth(null); }} className={inputCls} />
+          </div>
+          <span className="text-gray-300 mt-8 text-lg">→</span>
+          <div className="flex-1">
+            <p className="text-xs text-gray-400 mb-1">To</p>
+            <input type="date" value={toDate} onChange={e => { setToDate(e.target.value); setActiveMonth(null); }} className={inputCls} />
+          </div>
+        </div>
+        {(fromDate || toDate) && (
+          <p className="mt-2.5 text-sm font-semibold text-indigo-600">
+            {fromDate ? fmtDateLabel(fromDate) : "All time"} → {toDate ? fmtDateLabel(toDate) : "Today"}
+          </p>
+        )}
+      </div>
+
+      {/* Monthly Spend chart */}
       <div className="bg-white rounded-2xl border border-gray-100 p-4">
         <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-3">Monthly Spend — tap a bar to filter</p>
         <StackedChart expenses={expenses} onMonthClick={handleMonthClick} activeMonth={activeMonth} />
       </div>
+
+      {/* Spend by Category pie chart */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-4">
+        <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-3">Spend by Category — tap to filter</p>
+        <PieChart
+          expenses={filteredNoCat}
+          catFilter={catFilter}
+          onCatClick={handlePieCatClick}
+          onClearCats={() => setCatFilter([])}
+        />
+      </div>
+
+      {/* Filters — category & payment only */}
       <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
         <button onClick={() => setShowFilters(p => !p)}
           className="w-full flex items-center justify-between px-4 py-3 text-left">
@@ -580,17 +772,14 @@ function HistoryView({ expenses, merchants, onUpdate, onDelete }: {
               <option value="">All payment methods</option>
               {PAYMENTS.map(m => <option key={m}>{m}</option>)}
             </select>
-            <div className="flex gap-2 items-center">
-              <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300" />
-              <span className="text-gray-400">→</span>
-              <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300" />
-            </div>
             {activeFilters > 0 && (
-              <button onClick={() => { setCatFilter([]); setPmFilter(""); setFromDate(defaultFrom); setToDate(defaultTo); setActiveMonth(null); }} className="text-xs text-indigo-500 font-medium">Reset filters</button>
+              <button onClick={() => { setCatFilter([]); setPmFilter(""); }} className="text-xs text-indigo-500 font-medium">Reset filters</button>
             )}
           </div>
         )}
       </div>
+
+      {/* Export */}
       <button onClick={exportCSV}
         className="w-full flex items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-600 text-sm font-medium py-2.5 active:scale-95 transition-all">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -598,6 +787,8 @@ function HistoryView({ expenses, merchants, onUpdate, onDelete }: {
         </svg>
         Export {filtered.length} record{filtered.length !== 1 ? "s" : ""} as CSV
       </button>
+
+      {/* Expense list */}
       <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 flex justify-between">
           <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Expenses</p>
@@ -607,6 +798,8 @@ function HistoryView({ expenses, merchants, onUpdate, onDelete }: {
         <div className="divide-y divide-gray-50">
           {filtered.map(e => {
             const isOpen = expanded === e.id;
+            const ub = calcUsdBase(e.amount, e.rate);
+            const { fees: fe, tax: tx } = calcFeesAndTax(ub, e.payment);
             return (
               <div key={e.id}>
                 <button onClick={() => setExpanded(isOpen ? null : e.id)}
@@ -628,10 +821,18 @@ function HistoryView({ expenses, merchants, onUpdate, onDelete }: {
                 {isOpen && (
                   <div className="px-4 pb-4 bg-gray-50 border-t border-gray-100 space-y-3">
                     <div className="grid grid-cols-3 gap-2 pt-3">
-                      {[["Local", e.amount.toFixed(2)], ["Rate", e.rate.toFixed(4)], ["USD Total", fmtUsd(e.usdAmount)]].map(([l, v]) => (
+                      {[["Local amt", e.amount.toFixed(2)], ["Rate", e.rate.toFixed(4)], ["USD Base", fmtUsd(ub)]].map(([l, v]) => (
                         <div key={l} className="bg-white rounded-lg p-2 border border-gray-100">
                           <p className="text-xs text-gray-400 mb-0.5">{l}</p>
                           <p className="text-sm font-semibold text-gray-700">{v}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[["Fees", fmtUsd(fe)], ["IMT Tax", fmtUsd(tx)], ["USD Total", fmtUsd(e.usdAmount)]].map(([l, v]) => (
+                        <div key={l} className={`rounded-lg p-2 border ${l === "USD Total" ? "bg-indigo-50 border-indigo-100" : "bg-white border-gray-100"}`}>
+                          <p className={`text-xs mb-0.5 ${l === "USD Total" ? "text-indigo-400" : "text-gray-400"}`}>{l}</p>
+                          <p className={`text-sm font-semibold ${l === "USD Total" ? "text-indigo-700" : "text-gray-700"}`}>{v}</p>
                         </div>
                       ))}
                     </div>
