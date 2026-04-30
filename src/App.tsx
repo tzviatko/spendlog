@@ -84,6 +84,16 @@ const calcUsdBase = (amount: string | number, rate: string | number) =>
 const calcTotal = (usdBase: number, fees: number, tax: number) =>
   parseFloat((usdBase + fees + tax).toFixed(2));
 
+// Local-timezone-safe date helpers (avoids UTC shift when using toISOString on midnight dates)
+const localIso = (date: Date) => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+};
+const firstOfMonth = (y: number, m0: number) => localIso(new Date(y, m0, 1));      // m0 is 0-indexed
+const lastOfMonth  = (y: number, m0: number) => localIso(new Date(y, m0 + 1, 0));  // day-0 of next month = last day of m0
+
 const fmtUsd  = (n: number) => "$" + (n || 0).toFixed(2);
 const fmtDate = (s: string) => new Date(s).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 const fmtTime = (s: string) => new Date(s).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
@@ -814,8 +824,8 @@ function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete }: {
   onUpdate: (updated: Expense) => void; onDelete: (id: string) => void;
 }) {
   const today = new Date();
-  const defaultFrom = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
-  const defaultTo   = today.toISOString().slice(0, 10);
+  const defaultFrom = firstOfMonth(today.getFullYear(), today.getMonth());
+  const defaultTo   = lastOfMonth(today.getFullYear(), today.getMonth());
 
   const [catFilter, setCatFilter]   = useState<string[]>([]);
   const [pmFilter, setPmFilter]     = useState("");
@@ -827,36 +837,26 @@ function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete }: {
   const [showFilters, setShowFilters] = useState(false);
   const [activeMonth, setActiveMonth] = useState<string | null>(null);
 
-  const snapFrom = (raw: string) => {
-    if (!raw) return "";
-    const d = new Date(raw + "T12:00");
-    return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
-  };
-  const snapTo = (raw: string) => {
-    if (!raw) return "";
-    const d = new Date(raw + "T12:00");
-    return new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
-  };
-
   const handleMonthClick = useCallback((key: string) => {
     if (activeMonth === key) {
       setActiveMonth(null); setFromDate(defaultFrom); setToDate(defaultTo);
     } else {
       setActiveMonth(key);
-      const [y, m] = key.split("-").map(Number);
-      setFromDate(new Date(y, m - 1, 1).toISOString().slice(0, 10));
-      setToDate(new Date(y, m, 0).toISOString().slice(0, 10));
+      const [y, m] = key.split("-").map(Number); // m is 1-indexed from the key
+      setFromDate(firstOfMonth(y, m - 1));
+      setToDate(lastOfMonth(y, m - 1));
     }
   }, [activeMonth, defaultFrom, defaultTo]);
 
   const setPreset = useCallback((preset: string) => {
     const now = new Date();
-    const todayStr = now.toISOString().slice(0, 10);
+    const y = now.getFullYear();
+    const m = now.getMonth(); // 0-indexed
     setActiveMonth(null);
-    if (preset === "this")       { setFromDate(new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)); setToDate(todayStr); }
-    else if (preset === "last")  { setFromDate(new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 10)); setToDate(new Date(now.getFullYear(), now.getMonth(), 0).toISOString().slice(0, 10)); }
-    else if (preset === "3m")    { setFromDate(new Date(now.getFullYear(), now.getMonth() - 2, 1).toISOString().slice(0, 10)); setToDate(todayStr); }
-    else if (preset === "all")   { setFromDate(""); setToDate(""); }
+    if (preset === "this")      { setFromDate(firstOfMonth(y, m));     setToDate(lastOfMonth(y, m)); }
+    else if (preset === "last") { setFromDate(firstOfMonth(y, m - 1)); setToDate(lastOfMonth(y, m - 1)); }
+    else if (preset === "3m")   { setFromDate(firstOfMonth(y, m - 2)); setToDate(lastOfMonth(y, m)); }
+    else if (preset === "all")  { setFromDate(""); setToDate(""); }
   }, []);
 
   const filtered = useMemo(() => expenses.filter(e => {
@@ -927,14 +927,14 @@ function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete }: {
           <div className="flex-1">
             <p className="text-xs text-gray-400 mb-1">From</p>
             <input type="date" value={fromDate}
-              onChange={e => { setFromDate(snapFrom(e.target.value)); setActiveMonth(null); }}
+              onChange={e => { setFromDate(e.target.value); setActiveMonth(null); }}
               className={inputCls} />
           </div>
           <span className="text-gray-300 mt-8 text-lg">→</span>
           <div className="flex-1">
             <p className="text-xs text-gray-400 mb-1">To</p>
             <input type="date" value={toDate}
-              onChange={e => { setToDate(snapTo(e.target.value)); setActiveMonth(null); }}
+              onChange={e => { setToDate(e.target.value); setActiveMonth(null); }}
               className={inputCls} />
           </div>
         </div>
