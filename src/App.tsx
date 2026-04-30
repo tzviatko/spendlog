@@ -26,16 +26,16 @@ type CatEntry = { label: string; tw: string; hex: string };
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const CAT: CatEntry[] = [
-  { label: "Food & Groceries", tw: "bg-emerald-100 text-emerald-800", hex: "#6ee7b7" },
-  { label: "Transport",        tw: "bg-sky-100 text-sky-800",         hex: "#7dd3fc" },
-  { label: "Utilities",        tw: "bg-violet-100 text-violet-800",   hex: "#c4b5fd" },
-  { label: "Health",           tw: "bg-rose-100 text-rose-800",       hex: "#fda4af" },
-  { label: "Entertainment",    tw: "bg-amber-100 text-amber-800",     hex: "#fcd34d" },
-  { label: "Clothing",         tw: "bg-pink-100 text-pink-800",       hex: "#f9a8d4" },
-  { label: "Home & Construction", tw: "bg-orange-100 text-orange-800", hex: "#fdba74" },
-  { label: "Travel",           tw: "bg-cyan-100 text-cyan-800",       hex: "#67e8f9" },
-  { label: "Business",         tw: "bg-indigo-100 text-indigo-800",   hex: "#a5b4fc" },
-  { label: "Other",            tw: "bg-gray-100 text-gray-600",       hex: "#d1d5db" },
+  { label: "Food & Groceries",           tw: "bg-emerald-100 text-emerald-800",   hex: "#6ee7b7" },
+  { label: "Meals & Entertainment",      tw: "bg-amber-100 text-amber-800",       hex: "#fcd34d" },
+  { label: "Healthcare",                 tw: "bg-rose-100 text-rose-800",         hex: "#fda4af" },
+  { label: "Vehicles, Fuel, Parking",   tw: "bg-sky-100 text-sky-800",           hex: "#7dd3fc" },
+  { label: "Toiletries, Hair, Nails",   tw: "bg-pink-100 text-pink-800",         hex: "#f9a8d4" },
+  { label: "Fortunes Gate renovation",  tw: "bg-orange-100 text-orange-800",     hex: "#fdba74" },
+  { label: "Fortunes Gate Cottage",     tw: "bg-yellow-100 text-yellow-700",     hex: "#fde68a" },
+  { label: "Fortunes Gate Garden",      tw: "bg-lime-100 text-lime-800",         hex: "#bef264" },
+  { label: "Tawana Pay",                tw: "bg-indigo-100 text-indigo-800",     hex: "#a5b4fc" },
+  { label: "Other",                     tw: "bg-gray-100 text-gray-600",         hex: "#d1d5db" },
 ];
 
 const EXTRA_COLORS: Omit<CatEntry, "label">[] = [
