@@ -674,7 +674,7 @@ export default function App() {
         >
           {/* ── ADD slide ─────────────────────────────────────────── */}
           <div style={{ width: `${100 / n}%`, height: "100%", display: "flex", flexDirection: "column", touchAction: "pan-y" }}>
-            <div style={{ flex: 1, overflowY: "auto" }}>
+            <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
               <div className="max-w-xl mx-auto px-4 pt-5 pb-4 space-y-4">
                 <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">New Expense</p>
                 <Field label="Date & Time">
@@ -923,15 +923,15 @@ function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete }: {
             </button>
           ))}
         </div>
-        <div className="flex gap-2 items-start">
-          <div className="flex-1">
+        <div className="flex gap-2 items-end">
+          <div className="flex-1 min-w-0">
             <p className="text-xs text-gray-400 mb-1">From</p>
             <input type="date" value={fromDate}
               onChange={e => { setFromDate(e.target.value); setActiveMonth(null); }}
               className={inputCls} />
           </div>
-          <span className="text-gray-300 mt-8 text-lg">→</span>
-          <div className="flex-1">
+          <span className="text-gray-300 shrink-0 pb-2.5">→</span>
+          <div className="flex-1 min-w-0">
             <p className="text-xs text-gray-400 mb-1">To</p>
             <input type="date" value={toDate}
               onChange={e => { setToDate(e.target.value); setActiveMonth(null); }}
