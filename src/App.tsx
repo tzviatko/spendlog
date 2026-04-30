@@ -263,6 +263,64 @@ function PieChart({ expenses, allCats, catFilter, onCatClick, onClearCats }: {
   );
 }
 
+// ── Merchant combobox ──────────────────────────────────────────────────────
+function MerchantCombobox({ value, onChange, merchants, onSelectExisting }: {
+  value: string;
+  onChange: (v: string) => void;
+  merchants: string[];
+  onSelectExisting?: (m: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [highlight, setHighlight] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const filtered = useMemo(() => {
+    if (!value.trim()) return merchants.slice(0, 50);
+    const q = value.toLowerCase();
+    return merchants.filter(m => m.toLowerCase().includes(q)).slice(0, 50);
+  }, [value, merchants]);
+
+  const select = (m: string) => {
+    onChange(m);
+    setOpen(false);
+    onSelectExisting?.(m);
+  };
+
+  const handleKey = (e: React.KeyboardEvent) => {
+    if (!open) { if (e.key === "ArrowDown" || e.key === "Enter") setOpen(true); return; }
+    if (e.key === "ArrowDown") { e.preventDefault(); setHighlight(h => Math.min(h + 1, filtered.length - 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setHighlight(h => Math.max(h - 1, 0)); }
+    else if (e.key === "Enter") { e.preventDefault(); if (filtered[highlight]) select(filtered[highlight]); else setOpen(false); }
+    else if (e.key === "Escape") setOpen(false);
+  };
+
+  return (
+    <div ref={containerRef} className="relative">
+      <input
+        type="text"
+        value={value}
+        onChange={e => { onChange(e.target.value); setOpen(true); setHighlight(0); }}
+        onFocus={() => { setOpen(true); setHighlight(0); }}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onKeyDown={handleKey}
+        placeholder="Search or type new…"
+        className={inputCls}
+        autoComplete="off"
+      />
+      {open && filtered.length > 0 && (
+        <ul className="absolute z-50 left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-52 overflow-y-auto">
+          {filtered.map((m, i) => (
+            <li key={m} onMouseDown={() => select(m)}
+              className={`px-3 py-2 text-sm cursor-pointer ${i === highlight ? "bg-indigo-50 text-indigo-700" : "text-gray-700 hover:bg-gray-50"}`}>
+              {m}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 // ── Auth screen ────────────────────────────────────────────────────────────
 function AuthScreen() {
   const [email, setEmail] = useState(""); const [password, setPassword] = useState("");
@@ -309,7 +367,7 @@ function EditModal({ expense, merchants, allCats, onSave, onClose }: {
   onSave: (updated: Expense) => void; onClose: () => void;
 }) {
   const [f, setF] = useState({
-    date: expense.date, merchant: expense.merchant, merchantInput: "",
+    date: expense.date, merchant: expense.merchant,
     category: expense.category, amount: String(expense.amount),
     rate: String(expense.rate), payment: expense.payment, notes: expense.notes || "",
   });
@@ -330,12 +388,7 @@ function EditModal({ expense, merchants, allCats, onSave, onClose }: {
             <input type="datetime-local" value={f.date} onChange={e => set("date", e.target.value)} className={inputCls} />
           </Field>
           <Field label="Merchant">
-            <div className="flex gap-2">
-              <select value={f.merchant} onChange={e => { set("merchant", e.target.value); set("merchantInput", ""); }} className={inputCls}>
-                {merchants.map(m => <option key={m}>{m}</option>)}
-              </select>
-              <input placeholder="Or type new…" value={f.merchantInput} onChange={e => { set("merchantInput", e.target.value); set("merchant", ""); }} className={inputCls} />
-            </div>
+            <MerchantCombobox value={f.merchant} onChange={v => set("merchant", v)} merchants={merchants} />
           </Field>
           <Field label="Category">
             <div className="flex flex-wrap gap-2">
@@ -377,7 +430,7 @@ function EditModal({ expense, merchants, allCats, onSave, onClose }: {
             <textarea rows={2} value={f.notes} onChange={e => set("notes", e.target.value)} className={inputCls + " resize-none"} />
           </Field>
           <button onClick={() => {
-            const merchant = f.merchantInput || f.merchant;
+            const merchant = f.merchant;
             if (!merchant || !(parseFloat(f.amount) > 0)) return;
             const ub = calcUsdBase(f.amount, f.rate);
             const { fees: fe, tax: tx } = calcFeesAndTax(ub, f.payment);
@@ -547,7 +600,7 @@ export default function App() {
   const usdTotal = calcTotal(usdBase, fees, tax);
 
   const handleSave = async () => {
-    const merchant = form.merchantInput || form.merchant;
+    const merchant = form.merchant;
     if (!merchant) { showToast("Merchant required", "error"); return; }
     if (!(parseFloat(form.amount) > 0)) { showToast("Amount must be > 0", "error"); return; }
     const ub = calcUsdBase(form.amount, form.rate);
@@ -654,20 +707,16 @@ export default function App() {
                   </div>
                 </Field>
                 <Field label="Merchant">
-                  <div className="flex gap-2">
-                    <select value={form.merchant} onChange={e => {
-                      const m = e.target.value; set("merchant", m); set("merchantInput", "");
-                      if (m) {
-                        const last = expenses.find(ex => ex.merchant === m);
-                        if (last) set("category", last.category);
-                        setTimeout(() => amountInputRef.current?.focus(), 50);
-                      }
-                    }} className={inputCls}>
-                      <option value="">— select —</option>
-                      {merchants.map(m => <option key={m}>{m}</option>)}
-                    </select>
-                    <input placeholder="Or type new…" value={form.merchantInput} onChange={e => { set("merchantInput", e.target.value); set("merchant", ""); }} className={inputCls} />
-                  </div>
+                  <MerchantCombobox
+                    value={form.merchant || form.merchantInput}
+                    onChange={v => { set("merchant", v); set("merchantInput", ""); }}
+                    merchants={merchants}
+                    onSelectExisting={m => {
+                      const last = expenses.find(ex => ex.merchant === m);
+                      if (last) set("category", last.category);
+                      setTimeout(() => amountInputRef.current?.focus(), 50);
+                    }}
+                  />
                 </Field>
                 <Field label="Category">
                   <div className="flex flex-wrap gap-2">
