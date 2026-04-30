@@ -89,7 +89,8 @@ const localIso = (date: Date) => {
 const firstOfMonth = (y: number, m0: number) => localIso(new Date(y, m0, 1));      // m0 is 0-indexed
 const lastOfMonth  = (y: number, m0: number) => localIso(new Date(y, m0 + 1, 0));  // day-0 of next month = last day of m0
 
-const fmtUsd  = (n: number) => "$" + (n || 0).toFixed(2);
+const fmtAmt  = (n: number, dp = 2) => (n || 0).toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp });
+const fmtUsd  = (n: number) => "$" + fmtAmt(n);
 const fmtDate = (s: string) => new Date(s).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
 const fmtTime = (s: string) => new Date(s).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
 const fmtDateLabel = (d: string) => d ? new Date(d + "T12:00").toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }) : "";
@@ -419,7 +420,7 @@ function EditModal({ expense, merchants, allCats, onSave, onClose }: {
             </div>
           </Field>
           <div className="grid grid-cols-3 gap-2">
-            <Field label="USD Base"><div className={readonlyCls + " text-gray-400"}>{usdBase.toFixed(2)}</div></Field>
+            <Field label="USD Base"><div className={readonlyCls + " text-gray-400"}>{fmtAmt(usdBase)}</div></Field>
             <Field label="Fees"><div className={readonlyCls + " text-gray-400"}>{fmtUsd(fees)}</div></Field>
             <Field label="IMT Tax"><div className={readonlyCls + " text-gray-400"}>{fmtUsd(tax)}</div></Field>
           </div>
@@ -496,7 +497,11 @@ export default function App() {
     ...customCatLabels.map((label, i) => ({ label, ...EXTRA_COLORS[i % EXTRA_COLORS.length] })),
   ], [customCatLabels]);
 
-  const merchants = useMemo(() => [...new Set(expenses.map(e => e.merchant))].sort(), [expenses]);
+  const merchants = useMemo(() => {
+    const freq: Record<string, number> = {};
+    expenses.forEach(e => { freq[e.merchant] = (freq[e.merchant] || 0) + 1; });
+    return Object.keys(freq).sort((a, b) => freq[b] - freq[a]);
+  }, [expenses]);
 
   // ── Load custom categories from localStorage ──
   useEffect(() => {
@@ -1065,7 +1070,7 @@ function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete }: {
                 {isOpen && (
                   <div className="px-4 pb-4 bg-gray-50 border-t border-gray-100 space-y-3">
                     <div className="grid grid-cols-3 gap-2 pt-3">
-                      {[["Local amt", e.amount.toFixed(2)], ["Rate", e.rate.toFixed(4)], ["USD Base", fmtUsd(ub)]].map(([l, v]) => (
+                      {[["Local amt", fmtAmt(e.amount)], ["Rate", fmtAmt(e.rate, 4)], ["USD Base", fmtUsd(ub)]].map(([l, v]) => (
                         <div key={l} className="bg-white rounded-lg p-2 border border-gray-100">
                           <p className="text-xs text-gray-400 mb-0.5">{l}</p>
                           <p className="text-sm font-semibold text-gray-700">{v}</p>
