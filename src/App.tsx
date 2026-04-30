@@ -778,7 +778,7 @@ export default function App() {
             <div ref={setAdminSlide} style={{ width: `${100 / n}%`, height: "100%", position: "relative", overflow: "hidden" }}>
               <div style={{ height: "100%", overflowY: "auto", touchAction: "pan-y" }}>
                 <div className="max-w-xl mx-auto px-4 py-5">
-                  <AdminView currentProfile={profile} portalTarget={adminSlide} />
+                  <AdminView portalTarget={adminSlide} />
                 </div>
               </div>
             </div>
@@ -1089,7 +1089,7 @@ function EditProfileModal({ profile, onSave, onClose, saving }: {
 }
 
 // ── Admin view ─────────────────────────────────────────────────────────────
-function AdminView({ currentProfile, portalTarget }: { currentProfile: Profile | null; portalTarget: HTMLDivElement | null }) {
+function AdminView({ portalTarget }: { portalTarget: HTMLDivElement | null }) {
   const [profiles, setProfiles]     = useState<Profile[]>([]);
   const [editing, setEditing]       = useState<Profile | null>(null);
   const [saving, setSaving]         = useState(false);
