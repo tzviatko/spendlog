@@ -345,7 +345,7 @@ function EditModal({ expense, merchants, allCats, onSave, onClose }: {
             </div>
           </Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Amount local">
+            <Field label="Amount">
               <input type="number" min="0" step="0.01" value={f.amount} onChange={e => set("amount", e.target.value)} className={inputCls} />
             </Field>
             <Field label="Rate → USD">
@@ -403,6 +403,7 @@ export default function App() {
   const [addingCat, setAddingCat]             = useState(false);
   const [newCatName, setNewCatName]           = useState("");
   const newCatInputRef = useRef<HTMLInputElement>(null);
+  const amountInputRef = useRef<HTMLInputElement>(null);
   const fileRef        = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState({
     date: nowZW(), merchant: "", merchantInput: "",
@@ -666,14 +667,18 @@ export default function App() {
             <div style={{ flex: 1, overflowY: "auto" }}>
               <div className="max-w-xl mx-auto px-4 pt-5 pb-4 space-y-4">
                 <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">New Expense</p>
-                <Field label="Date & Time" sub="Zimbabwe time">
+                <Field label="Date & Time">
                   <input type="datetime-local" value={form.date} onChange={e => set("date", e.target.value)} className={inputCls} />
                 </Field>
                 <Field label="Merchant">
                   <div className="flex gap-2">
                     <select value={form.merchant} onChange={e => {
                       const m = e.target.value; set("merchant", m); set("merchantInput", "");
-                      if (m) { const last = expenses.find(ex => ex.merchant === m); if (last) set("category", last.category); }
+                      if (m) {
+                        const last = expenses.find(ex => ex.merchant === m);
+                        if (last) set("category", last.category);
+                        setTimeout(() => amountInputRef.current?.focus(), 50);
+                      }
                     }} className={inputCls}>
                       <option value="">— select —</option>
                       {merchants.map(m => <option key={m}>{m}</option>)}
@@ -713,8 +718,8 @@ export default function App() {
                   </div>
                 </Field>
                 <div className="grid grid-cols-2 gap-3">
-                  <Field label="Amount local">
-                    <input type="number" min="0" step="0.01" placeholder="0.00" value={form.amount} onChange={e => set("amount", e.target.value)} className={inputCls} />
+                  <Field label="Amount">
+                    <input ref={amountInputRef} type="number" min="0" step="0.01" placeholder="0.00" value={form.amount} onChange={e => set("amount", e.target.value)} className={inputCls} />
                   </Field>
                   <Field label="Rate → USD">
                     <input type="number" min="0" step="0.01" value={form.rate} onChange={e => set("rate", e.target.value)} className={inputCls} />
