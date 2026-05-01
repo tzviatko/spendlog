@@ -928,6 +928,7 @@ function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete, portalT
     if (preset === "this")       { setFromDate(firstOfMonth(y, m));     setToDate(lastOfMonth(y, m)); }
     else if (preset === "last")  { setFromDate(firstOfMonth(y, m - 1)); setToDate(lastOfMonth(y, m - 1)); }
     else if (preset === "3m")    { setFromDate(firstOfMonth(y, m - 2)); setToDate(lastOfMonth(y, m)); }
+    else if (preset === "6m")    { setFromDate(firstOfMonth(y, m - 5)); setToDate(lastOfMonth(y, m)); }
     else if (preset === "yr")    { setFromDate(`${y}-01-01`);           setToDate(`${y}-12-31`); }
     else if (preset === "lastyr"){ setFromDate(`${y - 1}-01-01`);      setToDate(`${y - 1}-12-31`); }
     else if (preset === "all")   { setFromDate(""); setToDate(""); }
@@ -1009,7 +1010,7 @@ function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete, portalT
       <div className="bg-white rounded-2xl border border-gray-100 p-4">
         <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-3">Date Range</p>
         <div className="flex gap-2 mb-3 flex-wrap">
-          {([["this","This month"],["last","Last month"],["3m","Last 3 months"],["yr","This year"],["lastyr","Last year"],["all","All time"]] as const).map(([id, label]) => (
+          {([["this","This month"],["last","Last month"],["3m","Last 3 months"],["6m","Last 6 months"],["yr","This year"],["lastyr","Last year"],["all","All time"]] as const).map(([id, label]) => (
             <button key={id} onClick={() => setPreset(id)}
               className="px-3 py-1.5 rounded-full text-xs font-medium bg-gray-50 border border-gray-200 text-gray-600 active:scale-95 transition-all hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-600">
               {label}
