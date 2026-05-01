@@ -865,6 +865,22 @@ function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete, portalT
   const [pmFilter, setPmFilter]     = useState("");
   const [fromDate, setFromDate]     = useState(defaultFrom);
   const [toDate, setToDate]         = useState(defaultTo);
+
+  // Once expenses load, if current month is empty default to the last month with entries
+  const smartDefaultDoneRef = useRef(false);
+  useEffect(() => {
+    if (smartDefaultDoneRef.current || expenses.length === 0) return;
+    smartDefaultDoneRef.current = true;
+    const thisMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+    const hasThisMonth = expenses.some(e => e.date.startsWith(thisMonthKey));
+    if (!hasThisMonth) {
+      const latest = expenses.reduce((a, b) => a.date > b.date ? a : b);
+      const d = new Date(latest.date + "T12:00");
+      setFromDate(firstOfMonth(d.getFullYear(), d.getMonth()));
+      setToDate(lastOfMonth(d.getFullYear(), d.getMonth()));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expenses]);
   const [expanded, setExpanded]     = useState<string | null>(null);
   const [editing, setEditing]       = useState<Expense | null>(null);
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
@@ -1167,11 +1183,14 @@ function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete, portalT
 }
 
 // ── Edit profile modal ─────────────────────────────────────────────────────
-function EditProfileModal({ profile, onSave, onClose, saving }: {
+function EditProfileModal({ profile, onSave, onClose, saving, saveError }: {
   profile: Profile;
-  onSave: (p: Profile) => void; onClose: () => void; saving: boolean;
+  onSave: (p: Profile, newEmail: string, newPassword: string) => void;
+  onClose: () => void; saving: boolean; saveError: string;
 }) {
   const [role, setRole] = useState<Profile["role"]>(profile.role);
+  const [email, setEmail] = useState(profile.email);
+  const [newPassword, setNewPassword] = useState("");
 
   const roleOptions: { value: Profile["role"]; label: string }[] = [
     { value: "user", label: "User" },
@@ -1186,10 +1205,12 @@ function EditProfileModal({ profile, onSave, onClose, saving }: {
           <button onClick={onClose} className="text-gray-400 text-xl leading-none">×</button>
         </div>
         <div className="px-5 py-4 space-y-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-1">Email</p>
-            <p className="text-sm font-medium text-gray-700">{profile.email}</p>
-          </div>
+          <Field label="Email">
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)} className={inputCls} />
+          </Field>
+          <Field label="New Password" sub="(leave blank to keep unchanged)">
+            <input type="text" value={newPassword} onChange={e => setNewPassword(e.target.value)} className={inputCls} placeholder="••••••••" />
+          </Field>
           <Field label="Role">
             <div className="flex gap-2 flex-wrap">
               {roleOptions.map(opt => (
@@ -1200,7 +1221,8 @@ function EditProfileModal({ profile, onSave, onClose, saving }: {
               ))}
             </div>
           </Field>
-          <button onClick={() => onSave({ ...profile, role })} disabled={saving}
+          {saveError && <p className="text-xs text-red-600 font-medium">{saveError}</p>}
+          <button onClick={() => onSave({ ...profile, role }, email.trim(), newPassword)} disabled={saving}
             className="w-full bg-indigo-600 disabled:opacity-60 text-white font-medium text-sm py-3 rounded-xl active:scale-95 transition-all">
             {saving ? "Saving…" : "Save Changes"}
           </button>
@@ -1215,6 +1237,7 @@ function AdminView({ portalTarget }: { portalTarget: HTMLDivElement | null }) {
   const [profiles, setProfiles]     = useState<Profile[]>([]);
   const [editing, setEditing]       = useState<Profile | null>(null);
   const [saving, setSaving]         = useState(false);
+  const [saveError, setSaveError]   = useState("");
   const [loadError, setLoadError]   = useState(false);
   const [showAdd, setShowAdd]       = useState(false);
   const [newEmail, setNewEmail]     = useState("");
@@ -1235,12 +1258,29 @@ function AdminView({ portalTarget }: { portalTarget: HTMLDivElement | null }) {
     if (data) setProfiles(data as Profile[]);
   };
 
-  const handleSave = async (updated: Profile) => {
-    setSaving(true);
-    const { error } = await supabase.from("profiles")
-      .update({ role: updated.role })
-      .eq("id", updated.id);
-    if (!error) { setProfiles(prev => prev.map(p => p.id === updated.id ? updated : p)); setEditing(null); }
+  const handleSave = async (updated: Profile, newEmail: string, newPassword: string) => {
+    setSaving(true); setSaveError("");
+    const emailChanged = newEmail && newEmail !== updated.email;
+
+    // Update role (and email) in profiles table
+    const profilePatch: Record<string, string> = { role: updated.role };
+    if (emailChanged) profilePatch.email = newEmail;
+    const { error: profileErr } = await supabase.from("profiles")
+      .update(profilePatch).eq("id", updated.id);
+    if (profileErr) { setSaveError(profileErr.message); setSaving(false); return; }
+
+    // Update auth email/password via edge function if needed
+    if (emailChanged || newPassword) {
+      const body: Record<string, string> = { userId: updated.id };
+      if (emailChanged) body.email = newEmail;
+      if (newPassword) body.password = newPassword;
+      const { error: fnErr } = await supabase.functions.invoke("admin-update-user", { body });
+      if (fnErr) { setSaveError(fnErr.message); setSaving(false); return; }
+    }
+
+    const finalProfile = { ...updated, email: emailChanged ? newEmail : updated.email };
+    setProfiles(prev => prev.map(p => p.id === updated.id ? finalProfile : p));
+    setEditing(null);
     setSaving(false);
   };
 
@@ -1265,8 +1305,9 @@ function AdminView({ portalTarget }: { portalTarget: HTMLDivElement | null }) {
     <EditProfileModal
       profile={editing}
       onSave={handleSave}
-      onClose={() => setEditing(null)}
+      onClose={() => { setEditing(null); setSaveError(""); }}
       saving={saving}
+      saveError={saveError}
     />
   ) : null;
 
