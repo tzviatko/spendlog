@@ -25,5 +25,6 @@ export interface SafeCashRow {
   description: string;
   amount_in: number | null;
   amount_out: number | null;
+  person: string;
   user_id: string | null;
 }

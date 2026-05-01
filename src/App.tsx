@@ -688,7 +688,12 @@ export default function App() {
       {/* Nav */}
       <nav className="bg-white border-b border-gray-100 shrink-0 z-40">
         <div className="max-w-xl mx-auto px-4 flex items-center justify-between h-14">
-          <span className="text-indigo-600 font-semibold text-sm">Spendlog</span>
+          <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" fill="none">
+              <rect width="32" height="32" rx="7" fill="#4f46e5"/>
+              <circle cx="16" cy="16" r="9" fill="white" fillOpacity="0.15"/>
+              <circle cx="16" cy="16" r="9" stroke="white" strokeWidth="2"/>
+              <text x="16" y="21" textAnchor="middle" fontFamily="system-ui,-apple-system,sans-serif" fontSize="13" fontWeight="700" fill="white">$</text>
+            </svg>
           <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
             {views.map(v => (
               <button key={v} onClick={() => setView(v)}
@@ -858,7 +863,7 @@ export default function App() {
           <div style={{ width: `${100 / n}%`, height: "100%", display: "flex", flexDirection: "column", touchAction: "pan-y" }}>
             <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
               <div className="max-w-xl mx-auto px-4 pt-5 pb-4">
-                <SafeView userId={user?.id ?? null} />
+                <SafeView userId={user?.id ?? null} isPrivileged={isPrivileged} />
               </div>
             </div>
           </div>
@@ -1270,22 +1275,55 @@ interface SafeEntry {
   description: string;
   amountIn: number | null;
   amountOut: number | null;
+  person: string;
 }
 
-function SafeView({ userId }: { userId: string | null }) {
+const SAFE_PEOPLE_KEY = "spendlog_safe_people";
+const BASE_SAFE_PEOPLE = ["Massie", "Zee"];
+
+function SafeView({ userId, isPrivileged }: { userId: string | null; isPrivileged: boolean }) {
   const [entries, setEntries] = useState<SafeEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [mode, setMode] = useState<"in" | "out">("in");
+  const [mode, setMode] = useState<"in" | "out">("out");
+  const [person, setPerson] = useState("");
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: string } | null>(null);
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
+  const [editing, setEditing] = useState<SafeEntry | null>(null);
+  const [search, setSearch] = useState("");
+  const [customPeople, setCustomPeople] = useState<string[]>([]);
+  const [addingPerson, setAddingPerson] = useState(false);
+  const [newPersonName, setNewPersonName] = useState("");
+  const newPersonRef = useRef<HTMLInputElement>(null);
+
+  const allPeople = [...BASE_SAFE_PEOPLE, ...customPeople];
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(SAFE_PEOPLE_KEY);
+      if (saved) setCustomPeople(JSON.parse(saved));
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    if (addingPerson) newPersonRef.current?.focus();
+  }, [addingPerson]);
 
   const showToast = (msg: string, type = "success") => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 2500);
   };
+
+  const rowToEntry = (r: SafeCashRow): SafeEntry => ({
+    id: r.id,
+    createdAt: r.created_at,
+    description: r.description,
+    amountIn: r.amount_in !== null ? Number(r.amount_in) : null,
+    amountOut: r.amount_out !== null ? Number(r.amount_out) : null,
+    person: r.person,
+  });
 
   useEffect(() => {
     supabase
@@ -1293,15 +1331,7 @@ function SafeView({ userId }: { userId: string | null }) {
       .select("*")
       .order("created_at", { ascending: true })
       .then(({ data, error }) => {
-        if (!error && data) {
-          setEntries((data as SafeCashRow[]).map(r => ({
-            id: r.id,
-            createdAt: r.created_at,
-            description: r.description,
-            amountIn: r.amount_in !== null ? Number(r.amount_in) : null,
-            amountOut: r.amount_out !== null ? Number(r.amount_out) : null,
-          })));
-        }
+        if (!error && data) setEntries((data as SafeCashRow[]).map(rowToEntry));
         setLoading(false);
       });
   }, []);
@@ -1311,25 +1341,34 @@ function SafeView({ userId }: { userId: string | null }) {
   const handleSave = async () => {
     const val = parseFloat(amount);
     if (!(val > 0)) { showToast("Enter a valid amount", "error"); return; }
+    if (!person) { showToast("Please select a person", "error"); return; }
     setSaving(true);
-    const row = {
+    const { data, error } = await supabase.from("safe_cash").insert({
       description: description.trim(),
       amount_in: mode === "in" ? val : null,
       amount_out: mode === "out" ? val : null,
+      person,
       user_id: userId,
-    };
-    const { data, error } = await supabase.from("safe_cash").insert(row).select().single();
+    }).select().single();
     if (error) { showToast("Failed to save", "error"); setSaving(false); return; }
-    const r = data as SafeCashRow;
-    setEntries(prev => [...prev, {
-      id: r.id, createdAt: r.created_at, description: r.description,
-      amountIn: r.amount_in !== null ? Number(r.amount_in) : null,
-      amountOut: r.amount_out !== null ? Number(r.amount_out) : null,
-    }]);
+    setEntries(prev => [...prev, rowToEntry(data as SafeCashRow)]);
     setDescription("");
     setAmount("");
     setSaving(false);
     showToast(mode === "in" ? "Cash added to safe" : "Cash taken from safe");
+  };
+
+  const handleUpdate = async (updated: SafeEntry) => {
+    const { error } = await supabase.from("safe_cash").update({
+      description: updated.description,
+      amount_in: updated.amountIn,
+      amount_out: updated.amountOut,
+      person: updated.person,
+    }).eq("id", updated.id);
+    if (error) { showToast("Failed to update", "error"); return; }
+    setEntries(prev => prev.map(e => e.id === updated.id ? updated : e));
+    setEditing(null);
+    showToast("Entry updated");
   };
 
   const handleDelete = async (id: string) => {
@@ -1339,11 +1378,30 @@ function SafeView({ userId }: { userId: string | null }) {
     setConfirmDel(null);
   };
 
-  // Running balance for display: compute per-entry cumulative balance (ascending order already)
-  const entriesWithBalance = entries.map((e, i) => {
-    const runningBalance = entries.slice(0, i + 1).reduce((s, x) => s + (x.amountIn ?? 0) - (x.amountOut ?? 0), 0);
-    return { ...e, runningBalance };
-  });
+  const confirmAddPerson = () => {
+    const label = newPersonName.trim();
+    if (!label || allPeople.some(p => p.toLowerCase() === label.toLowerCase())) {
+      setAddingPerson(false); setNewPersonName(""); return;
+    }
+    const next = [...customPeople, label];
+    setCustomPeople(next);
+    try { localStorage.setItem(SAFE_PEOPLE_KEY, JSON.stringify(next)); } catch {}
+    setAddingPerson(false); setNewPersonName("");
+  };
+
+  const entriesWithBalance = entries.map((e, i) => ({
+    ...e,
+    runningBalance: entries.slice(0, i + 1).reduce((s, x) => s + (x.amountIn ?? 0) - (x.amountOut ?? 0), 0),
+  }));
+
+  const q = search.trim().toLowerCase();
+  const filtered = q
+    ? [...entriesWithBalance].reverse().filter(e =>
+        e.person.toLowerCase().includes(q) ||
+        e.description.toLowerCase().includes(q) ||
+        fmtUsd(e.amountIn ?? e.amountOut ?? 0).includes(q)
+      )
+    : [...entriesWithBalance].reverse();
 
   return (
     <div className="space-y-4">
@@ -1354,46 +1412,74 @@ function SafeView({ userId }: { userId: string | null }) {
         </div>
       )}
 
+      {/* Edit modal */}
+      {editing && (
+        <SafeEditModal
+          entry={editing}
+          allPeople={allPeople}
+          onSave={handleUpdate}
+          onClose={() => setEditing(null)}
+        />
+      )}
+
       {/* Balance card */}
       <div className="bg-white rounded-2xl border border-gray-100 p-5 text-center">
         <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Current Balance</p>
-        <p className={`text-4xl font-bold ${balance >= 0 ? "text-emerald-600" : "text-red-500"}`}>
-          {fmtUsd(balance)}
-        </p>
+        <p className="text-4xl font-bold text-gray-900">{fmtUsd(balance)}</p>
       </div>
 
       {/* Entry form */}
       <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-4">
-        {/* In / Out toggle */}
         <div className="flex gap-2 bg-gray-100 rounded-xl p-1">
           {(["in", "out"] as const).map(m => (
             <button key={m} onClick={() => setMode(m)}
               className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${mode === m
-                ? m === "in"
-                  ? "bg-emerald-500 text-white shadow-sm"
-                  : "bg-red-500 text-white shadow-sm"
+                ? m === "in" ? "bg-emerald-500 text-white shadow-sm" : "bg-red-500 text-white shadow-sm"
                 : "text-gray-500"}`}>
               {m === "in" ? "Cash In" : "Cash Out"}
             </button>
           ))}
         </div>
 
+        <Field label="Person">
+          <div className="flex flex-wrap gap-2">
+            {allPeople.map(p => (
+              <button key={p} onClick={() => setPerson(p)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all
+                  ${person === p ? "bg-indigo-600 text-white border-transparent" : "bg-gray-50 text-gray-600 border-gray-200"}`}>
+                {p}
+              </button>
+            ))}
+            {addingPerson ? (
+              <div className="flex items-center gap-1">
+                <input ref={newPersonRef} value={newPersonName} onChange={e => setNewPersonName(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") confirmAddPerson(); if (e.key === "Escape") { setAddingPerson(false); setNewPersonName(""); } }}
+                  maxLength={20} placeholder="Name…"
+                  className="w-24 rounded-lg border border-indigo-300 px-2.5 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                <button onClick={confirmAddPerson} className="text-xs text-indigo-600 font-medium px-1.5 py-1 rounded-lg hover:bg-indigo-50">Add</button>
+                <button onClick={() => { setAddingPerson(false); setNewPersonName(""); }} className="text-xs text-gray-400 px-1 py-1 rounded-lg hover:bg-gray-50">✕</button>
+              </div>
+            ) : isPrivileged ? (
+              <button onClick={() => setAddingPerson(true)}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium border border-dashed border-gray-300 text-gray-400 hover:border-indigo-300 hover:text-indigo-500 transition-colors">
+                + Add
+              </button>
+            ) : null}
+          </div>
+        </Field>
+
         <Field label="Amount (USD)">
-          <input
-            type="number" min="0" step="0.01" placeholder="0.00"
+          <input type="number" min="0" step="0.01" placeholder="0.00"
             value={amount} onChange={e => setAmount(e.target.value)}
             onKeyDown={e => e.key === "Enter" && handleSave()}
-            className={inputCls}
-          />
+            className={inputCls} />
         </Field>
 
         <Field label="Description" sub="(optional)">
-          <input
-            type="text" placeholder="What is this for?"
+          <input type="text" placeholder="What is this for?"
             value={description} onChange={e => setDescription(e.target.value)}
             onKeyDown={e => e.key === "Enter" && handleSave()}
-            className={inputCls}
-          />
+            className={inputCls} />
         </Field>
 
         <button onClick={handleSave} disabled={saving}
@@ -1404,16 +1490,28 @@ function SafeView({ userId }: { userId: string | null }) {
 
       {/* Transaction log */}
       <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100 flex justify-between items-center">
-          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Log</p>
-          <span className="text-xs text-gray-400">{entries.length} entries</span>
+        <div className="px-4 py-3 border-b border-gray-100 space-y-2">
+          <div className="flex justify-between items-center">
+            <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Log</p>
+            <span className="text-xs text-gray-400">{entries.length} entries</span>
+          </div>
+          <div className="relative">
+            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-300" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Search person, description…"
+              className="w-full pl-8 pr-8 py-1.5 text-sm bg-gray-50 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 placeholder:text-gray-400" />
+            {search && (
+              <button onClick={() => setSearch("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            )}
+          </div>
         </div>
         {loading && <div className="py-10 text-center text-sm text-gray-400">Loading…</div>}
-        {!loading && entries.length === 0 && (
-          <div className="py-10 text-center text-sm text-gray-400">No transactions yet.</div>
-        )}
+        {!loading && entries.length === 0 && <div className="py-10 text-center text-sm text-gray-400">No transactions yet.</div>}
+        {!loading && entries.length > 0 && filtered.length === 0 && <div className="py-6 text-center text-sm text-gray-400">No entries match your search.</div>}
         <div className="divide-y divide-gray-50">
-          {[...entriesWithBalance].reverse().map(e => {
+          {filtered.map(e => {
             const isIn = e.amountIn !== null && e.amountIn > 0;
             const amtDisplay = isIn ? e.amountIn! : e.amountOut!;
             return (
@@ -1424,39 +1522,108 @@ function SafeView({ userId }: { userId: string | null }) {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-baseline justify-between gap-2">
-                      <span className={`text-sm font-semibold ${isIn ? "text-emerald-600" : "text-red-500"}`}>
-                        {isIn ? "+" : "−"}{fmtUsd(amtDisplay)}
-                      </span>
+                      <div className="flex items-baseline gap-2 min-w-0">
+                        <span className={`text-sm font-semibold ${isIn ? "text-emerald-600" : "text-red-500"}`}>
+                          {isIn ? "+" : "−"}{fmtUsd(amtDisplay)}
+                        </span>
+                        <span className="text-xs text-gray-500 font-medium truncate">{e.person}</span>
+                      </div>
                       <span className="text-xs text-gray-400 shrink-0">
-                        Balance: <span className={`font-medium ${e.runningBalance >= 0 ? "text-gray-700" : "text-red-500"}`}>{fmtUsd(e.runningBalance)}</span>
+                        Bal: <span className="font-medium text-gray-700">{fmtUsd(e.runningBalance)}</span>
                       </span>
                     </div>
-                    {e.description && <p className="text-xs text-gray-500 mt-0.5 truncate">{e.description}</p>}
+                    {e.description && <p className="text-xs text-gray-400 mt-0.5 truncate">{e.description}</p>}
                     <p className="text-xs text-gray-300 mt-0.5">{fmtDate(e.createdAt)} {fmtTime(e.createdAt)}</p>
                   </div>
-                  <div className="shrink-0">
+                  <div className="shrink-0 flex gap-1">
                     {confirmDel === e.id ? (
-                      <div className="flex gap-1">
+                      <>
                         <button onClick={() => handleDelete(e.id)}
-                          className="text-xs px-2 py-1 rounded-lg bg-red-500 text-white font-medium">
-                          Confirm
-                        </button>
+                          className="text-xs px-2 py-1 rounded-lg bg-red-500 text-white font-medium">Confirm</button>
                         <button onClick={() => setConfirmDel(null)}
-                          className="text-xs px-2 py-1 rounded-lg bg-gray-100 text-gray-500">
-                          Cancel
-                        </button>
-                      </div>
+                          className="text-xs px-2 py-1 rounded-lg bg-gray-100 text-gray-500">Cancel</button>
+                      </>
                     ) : (
-                      <button onClick={() => setConfirmDel(e.id)}
-                        className="text-xs text-gray-300 hover:text-red-400 transition-colors px-1">
-                        ✕
-                      </button>
+                      <>
+                        <button onClick={() => { setEditing(e); setConfirmDel(null); }}
+                          className="text-xs text-indigo-400 hover:text-indigo-600 transition-colors px-1 font-medium">Edit</button>
+                        <button onClick={() => setConfirmDel(e.id)}
+                          className="text-xs text-gray-300 hover:text-red-400 transition-colors px-1">✕</button>
+                      </>
                     )}
                   </div>
                 </div>
               </div>
             );
           })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Safe entry edit modal ───────────────────────────────────────────────────
+function SafeEditModal({ entry, allPeople, onSave, onClose }: {
+  entry: SafeEntry; allPeople: string[];
+  onSave: (updated: SafeEntry) => void; onClose: () => void;
+}) {
+  const isIn = entry.amountIn !== null && entry.amountIn > 0;
+  const [mode, setMode] = useState<"in" | "out">(isIn ? "in" : "out");
+  const [amount, setAmount] = useState(String(isIn ? entry.amountIn! : entry.amountOut!));
+  const [description, setDescription] = useState(entry.description);
+  const [person, setPerson] = useState(entry.person);
+
+  const handleSave = () => {
+    const val = parseFloat(amount);
+    if (!(val > 0) || !person) return;
+    onSave({
+      ...entry,
+      amountIn: mode === "in" ? val : null,
+      amountOut: mode === "out" ? val : null,
+      description: description.trim(),
+      person,
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="w-full bg-white rounded-t-2xl max-h-[85vh] overflow-y-auto" style={{ paddingBottom: "env(safe-area-inset-bottom,16px)" }}>
+        <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100">
+          <h2 className="text-base font-semibold text-gray-800">Edit Entry</h2>
+          <button onClick={onClose} className="text-gray-400 text-xl leading-none">×</button>
+        </div>
+        <div className="px-5 py-4 space-y-4">
+          <div className="flex gap-2 bg-gray-100 rounded-xl p-1">
+            {(["in", "out"] as const).map(m => (
+              <button key={m} onClick={() => setMode(m)}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${mode === m
+                  ? m === "in" ? "bg-emerald-500 text-white shadow-sm" : "bg-red-500 text-white shadow-sm"
+                  : "text-gray-500"}`}>
+                {m === "in" ? "Cash In" : "Cash Out"}
+              </button>
+            ))}
+          </div>
+          <Field label="Person">
+            <div className="flex flex-wrap gap-2">
+              {allPeople.map(p => (
+                <button key={p} onClick={() => setPerson(p)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all
+                    ${person === p ? "bg-indigo-600 text-white border-transparent" : "bg-gray-50 text-gray-600 border-gray-200"}`}>
+                  {p}
+                </button>
+              ))}
+            </div>
+          </Field>
+          <Field label="Amount (USD)">
+            <input type="number" min="0" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} className={inputCls} />
+          </Field>
+          <Field label="Description" sub="(optional)">
+            <input type="text" value={description} onChange={e => setDescription(e.target.value)} className={inputCls} />
+          </Field>
+          <button onClick={handleSave} disabled={!person || !(parseFloat(amount) > 0)}
+            className="w-full bg-indigo-600 disabled:opacity-50 text-white font-medium text-sm py-3 rounded-xl active:scale-95 transition-all">
+            Save Changes
+          </button>
         </div>
       </div>
     </div>
