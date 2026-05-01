@@ -747,12 +747,12 @@ export default function App() {
                         <button onClick={confirmAddCat} className="text-xs text-indigo-600 font-medium px-1.5 py-1 rounded-full hover:bg-indigo-50 transition-colors">Add</button>
                         <button onClick={() => { setAddingCat(false); setNewCatName(""); }} className="text-xs text-gray-400 px-1 py-1 rounded-full hover:bg-gray-50 transition-colors">✕</button>
                       </div>
-                    ) : (
+                    ) : isPrivileged ? (
                       <button onClick={() => setAddingCat(true)}
                         className="px-2.5 py-1 rounded-full text-xs font-medium border border-dashed border-gray-300 text-gray-400 hover:border-indigo-300 hover:text-indigo-500 transition-colors">
                         + Add
                       </button>
-                    )}
+                    ) : null}
                   </div>
                 </Field>
                 <div className="grid grid-cols-2 gap-3">
@@ -906,10 +906,12 @@ function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete, portalT
     const y = now.getFullYear();
     const m = now.getMonth(); // 0-indexed
     setActiveMonth(null);
-    if (preset === "this")      { setFromDate(firstOfMonth(y, m));     setToDate(lastOfMonth(y, m)); }
-    else if (preset === "last") { setFromDate(firstOfMonth(y, m - 1)); setToDate(lastOfMonth(y, m - 1)); }
-    else if (preset === "3m")   { setFromDate(firstOfMonth(y, m - 2)); setToDate(lastOfMonth(y, m)); }
-    else if (preset === "all")  { setFromDate(""); setToDate(""); }
+    if (preset === "this")       { setFromDate(firstOfMonth(y, m));     setToDate(lastOfMonth(y, m)); }
+    else if (preset === "last")  { setFromDate(firstOfMonth(y, m - 1)); setToDate(lastOfMonth(y, m - 1)); }
+    else if (preset === "3m")    { setFromDate(firstOfMonth(y, m - 2)); setToDate(lastOfMonth(y, m)); }
+    else if (preset === "yr")    { setFromDate(`${y}-01-01`);           setToDate(`${y}-12-31`); }
+    else if (preset === "lastyr"){ setFromDate(`${y - 1}-01-01`);      setToDate(`${y - 1}-12-31`); }
+    else if (preset === "all")   { setFromDate(""); setToDate(""); }
   }, []);
 
   const filtered = useMemo(() => {
@@ -988,7 +990,7 @@ function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete, portalT
       <div className="bg-white rounded-2xl border border-gray-100 p-4">
         <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-3">Date Range</p>
         <div className="flex gap-2 mb-3 flex-wrap">
-          {([["this","This month"],["last","Last month"],["3m","Last 3 months"],["all","All time"]] as const).map(([id, label]) => (
+          {([["this","This month"],["last","Last month"],["3m","Last 3 months"],["yr","This year"],["lastyr","Last year"],["all","All time"]] as const).map(([id, label]) => (
             <button key={id} onClick={() => setPreset(id)}
               className="px-3 py-1.5 rounded-full text-xs font-medium bg-gray-50 border border-gray-200 text-gray-600 active:scale-95 transition-all hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-600">
               {label}
