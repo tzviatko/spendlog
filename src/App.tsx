@@ -1444,7 +1444,7 @@ function SafeView({ userId, isPrivileged, portalTarget, userEmail }: { userId: s
           {(["in", "out"] as const).map(m => (
             <button key={m} onClick={() => setMode(m)}
               className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${mode === m
-                ? m === "in" ? "bg-emerald-500 text-white shadow-sm" : "bg-red-500 text-white shadow-sm"
+                ? m === "in" ? "bg-emerald-100 text-emerald-700 shadow-sm" : "bg-rose-100 text-rose-700 shadow-sm"
                 : "text-gray-500"}`}>
               {m === "in" ? "Cash In" : "Cash Out"}
             </button>
@@ -1493,7 +1493,7 @@ function SafeView({ userId, isPrivileged, portalTarget, userEmail }: { userId: s
         </Field>
 
         <button onClick={handleSave} disabled={saving}
-          className={`w-full text-white font-medium text-sm py-3 rounded-xl transition-all active:scale-95 disabled:opacity-60 ${mode === "in" ? "bg-emerald-500 hover:bg-emerald-600" : "bg-red-500 hover:bg-red-600"}`}>
+          className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-sm py-3 rounded-xl transition-all active:scale-95 disabled:opacity-60">
           {saving ? "Saving…" : mode === "in" ? "Add Cash" : "Remove Cash"}
         </button>
       </div>
@@ -1607,7 +1607,7 @@ function SafeEditModal({ entry, allPeople, onSave, onClose }: {
             {(["in", "out"] as const).map(m => (
               <button key={m} onClick={() => setMode(m)}
                 className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${mode === m
-                  ? m === "in" ? "bg-emerald-500 text-white shadow-sm" : "bg-red-500 text-white shadow-sm"
+                  ? m === "in" ? "bg-emerald-100 text-emerald-700 shadow-sm" : "bg-rose-100 text-rose-700 shadow-sm"
                   : "text-gray-500"}`}>
                 {m === "in" ? "Cash In" : "Cash Out"}
               </button>
