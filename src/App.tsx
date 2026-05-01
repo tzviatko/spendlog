@@ -864,7 +864,7 @@ export default function App() {
           <div ref={setSafeSlide} style={{ width: `${100 / n}%`, height: "100%", position: "relative", overflow: "hidden" }}>
             <div style={{ height: "100%", overflowY: "auto", touchAction: "pan-y" }}>
               <div className="max-w-xl mx-auto px-4 pt-5 pb-4">
-                <SafeView userId={user?.id ?? null} isPrivileged={isPrivileged} portalTarget={safeSlide} />
+                <SafeView userId={user?.id ?? null} isPrivileged={isPrivileged} portalTarget={safeSlide} userEmail={profile?.email ?? ""} />
               </div>
             </div>
           </div>
@@ -1282,7 +1282,7 @@ interface SafeEntry {
 const SAFE_PEOPLE_KEY = "spendlog_safe_people";
 const BASE_SAFE_PEOPLE = ["Massie", "Zee"];
 
-function SafeView({ userId, isPrivileged, portalTarget }: { userId: string | null; isPrivileged: boolean; portalTarget: HTMLDivElement | null }) {
+function SafeView({ userId, isPrivileged, portalTarget, userEmail }: { userId: string | null; isPrivileged: boolean; portalTarget: HTMLDivElement | null; userEmail: string }) {
   const [entries, setEntries] = useState<SafeEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [mode, setMode] = useState<"in" | "out">("out");
@@ -1311,6 +1311,12 @@ function SafeView({ userId, isPrivileged, portalTarget }: { userId: string | nul
   useEffect(() => {
     if (addingPerson) newPersonRef.current?.focus();
   }, [addingPerson]);
+
+  useEffect(() => {
+    if (!userEmail || person) return;
+    if (userEmail === "masego.valela@gmail.com") setPerson("Massie");
+    else if (userEmail === "tzviatko@impaque.com") setPerson("Zee");
+  }, [userEmail]);
 
   const showToast = (msg: string, type = "success") => {
     setToast({ msg, type });
@@ -1449,8 +1455,8 @@ function SafeView({ userId, isPrivileged, portalTarget }: { userId: string | nul
           <div className="flex flex-wrap gap-2">
             {allPeople.map(p => (
               <button key={p} onClick={() => setPerson(p)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all
-                  ${person === p ? "bg-indigo-600 text-white border-transparent" : "bg-gray-50 text-gray-600 border-gray-200"}`}>
+                className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all
+                  ${person === p ? "bg-indigo-100 text-indigo-800 border-transparent ring-2 ring-indigo-300" : "bg-gray-50 text-gray-500 border-gray-200"}`}>
                 {p}
               </button>
             ))}
@@ -1459,13 +1465,13 @@ function SafeView({ userId, isPrivileged, portalTarget }: { userId: string | nul
                 <input ref={newPersonRef} value={newPersonName} onChange={e => setNewPersonName(e.target.value)}
                   onKeyDown={e => { if (e.key === "Enter") confirmAddPerson(); if (e.key === "Escape") { setAddingPerson(false); setNewPersonName(""); } }}
                   maxLength={20} placeholder="Name…"
-                  className="w-24 rounded-lg border border-indigo-300 px-2.5 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-300" />
-                <button onClick={confirmAddPerson} className="text-xs text-indigo-600 font-medium px-1.5 py-1 rounded-lg hover:bg-indigo-50">Add</button>
-                <button onClick={() => { setAddingPerson(false); setNewPersonName(""); }} className="text-xs text-gray-400 px-1 py-1 rounded-lg hover:bg-gray-50">✕</button>
+                  className="w-32 rounded-full border border-indigo-300 px-2.5 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-300" />
+                <button onClick={confirmAddPerson} className="text-xs text-indigo-600 font-medium px-1.5 py-1 rounded-full hover:bg-indigo-50 transition-colors">Add</button>
+                <button onClick={() => { setAddingPerson(false); setNewPersonName(""); }} className="text-xs text-gray-400 px-1 py-1 rounded-full hover:bg-gray-50 transition-colors">✕</button>
               </div>
             ) : isPrivileged ? (
               <button onClick={() => setAddingPerson(true)}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium border border-dashed border-gray-300 text-gray-400 hover:border-indigo-300 hover:text-indigo-500 transition-colors">
+                className="px-2.5 py-1 rounded-full text-xs font-medium border border-dashed border-gray-300 text-gray-400 hover:border-indigo-300 hover:text-indigo-500 transition-colors">
                 + Add
               </button>
             ) : null}
@@ -1611,8 +1617,8 @@ function SafeEditModal({ entry, allPeople, onSave, onClose }: {
             <div className="flex flex-wrap gap-2">
               {allPeople.map(p => (
                 <button key={p} onClick={() => setPerson(p)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all
-                    ${person === p ? "bg-indigo-600 text-white border-transparent" : "bg-gray-50 text-gray-600 border-gray-200"}`}>
+                  className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all
+                    ${person === p ? "bg-indigo-100 text-indigo-800 border-transparent ring-2 ring-indigo-300" : "bg-gray-50 text-gray-500 border-gray-200"}`}>
                   {p}
                 </button>
               ))}
