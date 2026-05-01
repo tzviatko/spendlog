@@ -162,17 +162,35 @@ function StackedChart({ expenses, allCats, onMonthClick, activeMonth, fromDate, 
     return out;
   }, [expenses, fromDate, toDate]);
 
-  const max = Math.max(...months.map(m => m.total), 1);
+  const isCombined = months.length > 6;
+
+  const displayBars = useMemo(() => {
+    if (!isCombined) return months;
+    const byCat: Record<string, number> = {};
+    months.forEach(mo => {
+      Object.entries(mo.byCat).forEach(([cat, val]) => { byCat[cat] = (byCat[cat] || 0) + val; });
+    });
+    const total = parseFloat(Object.values(byCat).reduce((s, v) => s + v, 0).toFixed(2));
+    const firstDate = new Date(months[0].key + "-01T12:00");
+    const lastDate = new Date(months[months.length - 1].key + "-01T12:00");
+    const fmt = (d: Date) => d.toLocaleString("default", { month: "short", year: "numeric" });
+    const label = `${fmt(firstDate)} – ${fmt(lastDate)}`;
+    return [{ key: "combined", label, byCat, total }];
+  }, [months, isCombined]);
+
+  const max = Math.max(...displayBars.map(m => m.total), 1);
   return (
     <div>
-      <div className="flex items-end gap-3" style={{ height: 120 }}>
-        {months.map(m => {
-          const isActive = activeMonth === m.key;
+      <div className={`flex items-end gap-3 ${isCombined ? "justify-center" : ""}`} style={{ height: 120 }}>
+        {displayBars.map(m => {
+          const isActive = !isCombined && activeMonth === m.key;
           const barH = Math.max((m.total / max) * 100, m.total > 0 ? 4 : 0);
           const segs = Object.entries(m.byCat).sort((a, b) => b[1] - a[1]);
           return (
-            <button key={m.key} onClick={() => onMonthClick(m.key)}
-              className="flex-1 flex flex-col items-center gap-1 focus:outline-none" style={{ height: "100%" }}>
+            <button key={m.key}
+              onClick={() => { if (!isCombined) onMonthClick(m.key); }}
+              className={`flex flex-col items-center gap-1 focus:outline-none ${isCombined ? "cursor-default w-24" : "flex-1"}`}
+              style={{ height: "100%" }}>
               <span className="text-gray-400 mb-1" style={{ fontSize: 10 }}>{m.total > 0 ? fmtUsd(m.total) : ""}</span>
               <div className="w-full flex flex-col justify-end overflow-hidden"
                 style={{ height: "75%", border: isActive ? "2px solid #4f46e5" : "2px solid transparent", borderRadius: 6 }}>
@@ -182,7 +200,8 @@ function StackedChart({ expenses, allCats, onMonthClick, activeMonth, fromDate, 
                     <div key={cat} style={{ height: `${(val / m.total) * barH}%`, background: catHex(cat, allCats), minHeight: 2 }} />
                   ))}
               </div>
-              <span className={`text-xs font-medium mt-1 ${isActive ? "text-indigo-600" : "text-gray-400"}`} style={{ fontSize: 11 }}>{m.label}</span>
+              <span className={`font-medium mt-1 text-center ${isActive ? "text-indigo-600" : "text-gray-400"}`}
+                style={{ fontSize: isCombined ? 10 : 11 }}>{m.label}</span>
             </button>
           );
         })}
@@ -195,7 +214,7 @@ function StackedChart({ expenses, allCats, onMonthClick, activeMonth, fromDate, 
           </span>
         ))}
       </div>
-      {activeMonth && (
+      {!isCombined && activeMonth && (
         <button onClick={() => onMonthClick(activeMonth)} className="mt-2 text-xs text-indigo-500 font-medium">Clear month filter</button>
       )}
     </div>
