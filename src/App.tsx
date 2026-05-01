@@ -875,7 +875,7 @@ function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete, portalT
     const hasThisMonth = expenses.some(e => e.date.startsWith(thisMonthKey));
     if (!hasThisMonth) {
       const latest = expenses.reduce((a, b) => a.date > b.date ? a : b);
-      const d = new Date(latest.date + "T12:00");
+      const d = new Date(latest.date.slice(0, 10) + "T12:00");
       setFromDate(firstOfMonth(d.getFullYear(), d.getMonth()));
       setToDate(lastOfMonth(d.getFullYear(), d.getMonth()));
     }
