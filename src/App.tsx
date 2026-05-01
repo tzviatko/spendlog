@@ -573,6 +573,18 @@ export default function App() {
     if (!views.includes(view)) setView("entry");
   }, [views, view]);
 
+  // Refresh the date field to current ZW time whenever the app becomes visible
+  // (handles PWA resume on iPhone where stale state is preserved from background)
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        setForm(f => ({ ...f, date: nowZW() }));
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
+
   // Auto-focus add-category input
   useEffect(() => {
     if (addingCat) newCatInputRef.current?.focus();
