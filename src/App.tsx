@@ -950,7 +950,7 @@ function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete, portalT
   const activeFilters = catFilter.length + (pmFilter ? 1 : 0);
 
   const exportCSV = () => {
-    const headers = ["Date","Time","Merchant","Category","Payment Method","Amount (local)","Rate","USD Base","Fees","IMT Tax","USD Total","Notes"];
+    const headers = ["Date","Time","Merchant","Category","Payment Method","Amount","Rate","USD Base","Fees","IMT Tax","USD Total","Notes"];
     const rows = filtered.map(e => {
       const ub = calcUsdBase(e.amount, e.rate);
       const { fees: fe, tax: tx } = calcFeesAndTax(ub, e.payment);
