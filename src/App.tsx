@@ -476,6 +476,7 @@ export default function App() {
   const [customCatLabels, setCustomCatLabels] = useState<string[]>([]);
   const [adminSlide, setAdminSlide]           = useState<HTMLDivElement | null>(null);
   const [historySlide, setHistorySlide]       = useState<HTMLDivElement | null>(null);
+  const [safeSlide, setSafeSlide]             = useState<HTMLDivElement | null>(null);
   const [addingCat, setAddingCat]             = useState(false);
   const [newCatName, setNewCatName]           = useState("");
   const newCatInputRef = useRef<HTMLInputElement>(null);
@@ -860,10 +861,10 @@ export default function App() {
           </div>
 
           {/* ── SAFE slide ───────────────────────────────────────── */}
-          <div style={{ width: `${100 / n}%`, height: "100%", display: "flex", flexDirection: "column", touchAction: "pan-y" }}>
-            <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
+          <div ref={setSafeSlide} style={{ width: `${100 / n}%`, height: "100%", position: "relative", overflow: "hidden" }}>
+            <div style={{ height: "100%", overflowY: "auto", touchAction: "pan-y" }}>
               <div className="max-w-xl mx-auto px-4 pt-5 pb-4">
-                <SafeView userId={user?.id ?? null} isPrivileged={isPrivileged} />
+                <SafeView userId={user?.id ?? null} isPrivileged={isPrivileged} portalTarget={safeSlide} />
               </div>
             </div>
           </div>
@@ -1281,7 +1282,7 @@ interface SafeEntry {
 const SAFE_PEOPLE_KEY = "spendlog_safe_people";
 const BASE_SAFE_PEOPLE = ["Massie", "Zee"];
 
-function SafeView({ userId, isPrivileged }: { userId: string | null; isPrivileged: boolean }) {
+function SafeView({ userId, isPrivileged, portalTarget }: { userId: string | null; isPrivileged: boolean; portalTarget: HTMLDivElement | null }) {
   const [entries, setEntries] = useState<SafeEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [mode, setMode] = useState<"in" | "out">("out");
@@ -1412,15 +1413,18 @@ function SafeView({ userId, isPrivileged }: { userId: string | null; isPrivilege
         </div>
       )}
 
-      {/* Edit modal */}
-      {editing && (
-        <SafeEditModal
-          entry={editing}
-          allPeople={allPeople}
-          onSave={handleUpdate}
-          onClose={() => setEditing(null)}
-        />
-      )}
+      {/* Edit modal — portaled into the slide container so it's clipped to this page */}
+      {editing && (() => {
+        const modal = (
+          <SafeEditModal
+            entry={editing}
+            allPeople={allPeople}
+            onSave={handleUpdate}
+            onClose={() => setEditing(null)}
+          />
+        );
+        return portalTarget ? createPortal(modal, portalTarget) : modal;
+      })()}
 
       {/* Balance card */}
       <div className="bg-white rounded-2xl border border-gray-100 p-5 text-center">
@@ -1586,7 +1590,7 @@ function SafeEditModal({ entry, allPeople, onSave, onClose }: {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-end" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="absolute inset-0 z-50 bg-black/40 flex items-end" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="w-full bg-white rounded-t-2xl max-h-[85vh] overflow-y-auto" style={{ paddingBottom: "env(safe-area-inset-bottom,16px)" }}>
         <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100">
           <h2 className="text-base font-semibold text-gray-800">Edit Entry</h2>
