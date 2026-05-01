@@ -18,3 +18,12 @@ export interface ExpenseRow {
   created_at: string;
   user_id: string | null;
 }
+
+export interface SafeCashRow {
+  id: string;
+  created_at: string;
+  description: string;
+  amount_in: number | null;
+  amount_out: number | null;
+  user_id: string | null;
+}

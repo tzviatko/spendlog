@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
 import type { User } from "@supabase/supabase-js";
-import { supabase, type ExpenseRow } from "./lib/supabase";
+import { supabase, type ExpenseRow, type SafeCashRow } from "./lib/supabase";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface Profile {
@@ -497,7 +497,7 @@ export default function App() {
 
   const isPrivileged = profile?.role === "admin";
   const views = useMemo(() => {
-    const v = ["entry", "dashboard"];
+    const v = ["entry", "dashboard", "safe"];
     if (isPrivileged) v.push("admin");
     return v;
   }, [isPrivileged]);
@@ -674,7 +674,7 @@ export default function App() {
   if (authLoading) return <div className="min-h-screen bg-gray-50 flex items-center justify-center text-sm text-gray-400">Loading…</div>;
   if (!user) return <AuthScreen />;
 
-  const tabLabels: Record<string, string> = { entry: "Add", dashboard: "History", admin: "Admin" };
+  const tabLabels: Record<string, string> = { entry: "Add", dashboard: "History", safe: "Safe", admin: "Admin" };
 
   return (
     <div style={{ height: "100dvh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -850,6 +850,15 @@ export default function App() {
                       portalTarget={historySlide}
                     />
                 }
+              </div>
+            </div>
+          </div>
+
+          {/* ── SAFE slide ───────────────────────────────────────── */}
+          <div style={{ width: `${100 / n}%`, height: "100%", display: "flex", flexDirection: "column", touchAction: "pan-y" }}>
+            <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}>
+              <div className="max-w-xl mx-auto px-4 pt-5 pb-4">
+                <SafeView userId={user?.id ?? null} />
               </div>
             </div>
           </div>
@@ -1248,6 +1257,206 @@ function EditProfileModal({ profile, onSave, onClose, saving, saveError }: {
             className="w-full bg-indigo-600 disabled:opacity-60 text-white font-medium text-sm py-3 rounded-xl active:scale-95 transition-all">
             {saving ? "Saving…" : "Save Changes"}
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Safe Cash view ─────────────────────────────────────────────────────────
+interface SafeEntry {
+  id: string;
+  createdAt: string;
+  description: string;
+  amountIn: number | null;
+  amountOut: number | null;
+}
+
+function SafeView({ userId }: { userId: string | null }) {
+  const [entries, setEntries] = useState<SafeEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [mode, setMode] = useState<"in" | "out">("in");
+  const [description, setDescription] = useState("");
+  const [amount, setAmount] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState<{ msg: string; type: string } | null>(null);
+  const [confirmDel, setConfirmDel] = useState<string | null>(null);
+
+  const showToast = (msg: string, type = "success") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 2500);
+  };
+
+  useEffect(() => {
+    supabase
+      .from("safe_cash")
+      .select("*")
+      .order("created_at", { ascending: true })
+      .then(({ data, error }) => {
+        if (!error && data) {
+          setEntries((data as SafeCashRow[]).map(r => ({
+            id: r.id,
+            createdAt: r.created_at,
+            description: r.description,
+            amountIn: r.amount_in !== null ? Number(r.amount_in) : null,
+            amountOut: r.amount_out !== null ? Number(r.amount_out) : null,
+          })));
+        }
+        setLoading(false);
+      });
+  }, []);
+
+  const balance = entries.reduce((sum, e) => sum + (e.amountIn ?? 0) - (e.amountOut ?? 0), 0);
+
+  const handleSave = async () => {
+    const val = parseFloat(amount);
+    if (!(val > 0)) { showToast("Enter a valid amount", "error"); return; }
+    setSaving(true);
+    const row = {
+      description: description.trim(),
+      amount_in: mode === "in" ? val : null,
+      amount_out: mode === "out" ? val : null,
+      user_id: userId,
+    };
+    const { data, error } = await supabase.from("safe_cash").insert(row).select().single();
+    if (error) { showToast("Failed to save", "error"); setSaving(false); return; }
+    const r = data as SafeCashRow;
+    setEntries(prev => [...prev, {
+      id: r.id, createdAt: r.created_at, description: r.description,
+      amountIn: r.amount_in !== null ? Number(r.amount_in) : null,
+      amountOut: r.amount_out !== null ? Number(r.amount_out) : null,
+    }]);
+    setDescription("");
+    setAmount("");
+    setSaving(false);
+    showToast(mode === "in" ? "Cash added to safe" : "Cash taken from safe");
+  };
+
+  const handleDelete = async (id: string) => {
+    const { error } = await supabase.from("safe_cash").delete().eq("id", id);
+    if (error) { showToast("Failed to delete", "error"); return; }
+    setEntries(prev => prev.filter(e => e.id !== id));
+    setConfirmDel(null);
+  };
+
+  // Running balance for display: compute per-entry cumulative balance (ascending order already)
+  const entriesWithBalance = entries.map((e, i) => {
+    const runningBalance = entries.slice(0, i + 1).reduce((s, x) => s + (x.amountIn ?? 0) - (x.amountOut ?? 0), 0);
+    return { ...e, runningBalance };
+  });
+
+  return (
+    <div className="space-y-4">
+      {toast && (
+        <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-xl text-sm font-medium shadow-md
+          ${toast.type === "error" ? "bg-red-50 text-red-700 border border-red-200" : "bg-green-50 text-green-700 border border-green-200"}`}>
+          {toast.msg}
+        </div>
+      )}
+
+      {/* Balance card */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-5 text-center">
+        <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Current Balance</p>
+        <p className={`text-4xl font-bold ${balance >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+          {fmtUsd(balance)}
+        </p>
+      </div>
+
+      {/* Entry form */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-4">
+        {/* In / Out toggle */}
+        <div className="flex gap-2 bg-gray-100 rounded-xl p-1">
+          {(["in", "out"] as const).map(m => (
+            <button key={m} onClick={() => setMode(m)}
+              className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${mode === m
+                ? m === "in"
+                  ? "bg-emerald-500 text-white shadow-sm"
+                  : "bg-red-500 text-white shadow-sm"
+                : "text-gray-500"}`}>
+              {m === "in" ? "Cash In" : "Cash Out"}
+            </button>
+          ))}
+        </div>
+
+        <Field label="Amount (USD)">
+          <input
+            type="number" min="0" step="0.01" placeholder="0.00"
+            value={amount} onChange={e => setAmount(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && handleSave()}
+            className={inputCls}
+          />
+        </Field>
+
+        <Field label="Description" sub="(optional)">
+          <input
+            type="text" placeholder="What is this for?"
+            value={description} onChange={e => setDescription(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && handleSave()}
+            className={inputCls}
+          />
+        </Field>
+
+        <button onClick={handleSave} disabled={saving}
+          className={`w-full text-white font-medium text-sm py-3 rounded-xl transition-all active:scale-95 disabled:opacity-60 ${mode === "in" ? "bg-emerald-500 hover:bg-emerald-600" : "bg-red-500 hover:bg-red-600"}`}>
+          {saving ? "Saving…" : mode === "in" ? "Add Cash" : "Remove Cash"}
+        </button>
+      </div>
+
+      {/* Transaction log */}
+      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100 flex justify-between items-center">
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Log</p>
+          <span className="text-xs text-gray-400">{entries.length} entries</span>
+        </div>
+        {loading && <div className="py-10 text-center text-sm text-gray-400">Loading…</div>}
+        {!loading && entries.length === 0 && (
+          <div className="py-10 text-center text-sm text-gray-400">No transactions yet.</div>
+        )}
+        <div className="divide-y divide-gray-50">
+          {[...entriesWithBalance].reverse().map(e => {
+            const isIn = e.amountIn !== null && e.amountIn > 0;
+            const amtDisplay = isIn ? e.amountIn! : e.amountOut!;
+            return (
+              <div key={e.id} className="px-4 py-3">
+                <div className="flex items-start gap-3">
+                  <div className={`mt-0.5 w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-xs font-bold ${isIn ? "bg-emerald-100 text-emerald-600" : "bg-red-100 text-red-500"}`}>
+                    {isIn ? "+" : "−"}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className={`text-sm font-semibold ${isIn ? "text-emerald-600" : "text-red-500"}`}>
+                        {isIn ? "+" : "−"}{fmtUsd(amtDisplay)}
+                      </span>
+                      <span className="text-xs text-gray-400 shrink-0">
+                        Balance: <span className={`font-medium ${e.runningBalance >= 0 ? "text-gray-700" : "text-red-500"}`}>{fmtUsd(e.runningBalance)}</span>
+                      </span>
+                    </div>
+                    {e.description && <p className="text-xs text-gray-500 mt-0.5 truncate">{e.description}</p>}
+                    <p className="text-xs text-gray-300 mt-0.5">{fmtDate(e.createdAt)} {fmtTime(e.createdAt)}</p>
+                  </div>
+                  <div className="shrink-0">
+                    {confirmDel === e.id ? (
+                      <div className="flex gap-1">
+                        <button onClick={() => handleDelete(e.id)}
+                          className="text-xs px-2 py-1 rounded-lg bg-red-500 text-white font-medium">
+                          Confirm
+                        </button>
+                        <button onClick={() => setConfirmDel(null)}
+                          className="text-xs px-2 py-1 rounded-lg bg-gray-100 text-gray-500">
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button onClick={() => setConfirmDel(e.id)}
+                        className="text-xs text-gray-300 hover:text-red-400 transition-colors px-1">
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
