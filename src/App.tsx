@@ -1383,7 +1383,9 @@ function SafeView({ userId, isPrivileged, portalTarget, userEmail }: { userId: s
   const [customPeople, setCustomPeople] = useState<string[]>([]);
   const [addingPerson, setAddingPerson] = useState(false);
   const [newPersonName, setNewPersonName] = useState("");
+  const [displayCount, setDisplayCount] = useState(20);
   const newPersonRef = useRef<HTMLInputElement>(null);
+  const safeSentinelRef = useRef<HTMLDivElement>(null);
 
   const allPeople = [...BASE_SAFE_PEOPLE, ...customPeople];
 
@@ -1496,6 +1498,19 @@ function SafeView({ userId, isPrivileged, portalTarget, userEmail }: { userId: s
       )
     : [...entriesWithBalance].reverse();
 
+  useEffect(() => { setDisplayCount(20); }, [filtered.length, q]);
+
+  useEffect(() => {
+    const el = safeSentinelRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting)
+        setDisplayCount(c => Math.min(c + 20, filtered.length));
+    }, { rootMargin: "200px" });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [filtered.length]);
+
   return (
     <div className="space-y-4">
       {toast && (
@@ -1607,7 +1622,7 @@ function SafeView({ userId, isPrivileged, portalTarget, userEmail }: { userId: s
         {!loading && entries.length === 0 && <div className="py-10 text-center text-sm text-gray-400">No transactions yet.</div>}
         {!loading && entries.length > 0 && filtered.length === 0 && <div className="py-6 text-center text-sm text-gray-400">No entries match your search.</div>}
         <div className="divide-y divide-gray-50">
-          {filtered.map(e => {
+          {filtered.slice(0, displayCount).map(e => {
             const isIn = e.amountIn !== null && e.amountIn > 0;
             const amtDisplay = isIn ? e.amountIn! : e.amountOut!;
             return (
@@ -1653,6 +1668,10 @@ function SafeView({ userId, isPrivileged, portalTarget, userEmail }: { userId: s
             );
           })}
         </div>
+        <div ref={safeSentinelRef} />
+        {displayCount < filtered.length && (
+          <div className="py-3 text-center text-xs text-gray-400">Loading more…</div>
+        )}
       </div>
     </div>
   );
