@@ -20,6 +20,7 @@ interface Expense {
   payment: string;
   notes: string;
   usdAmount: number;
+  receiptUrl: string | null;
 }
 
 type CatEntry = { label: string; tw: string; hex: string };
@@ -100,6 +101,7 @@ const rowToExpense = (row: ExpenseRow): Expense => ({
   category: row.category, amount: Number(row.amount), rate: Number(row.rate),
   payment: row.payment, notes: row.notes || "",
   usdAmount: Number(row.usd_amount),
+  receiptUrl: row.receipt_url ?? null,
 });
 
 // ── Shared styles ──────────────────────────────────────────────────────────
@@ -382,8 +384,9 @@ function AuthScreen() {
 }
 
 // ── Edit modal ─────────────────────────────────────────────────────────────
-function EditModal({ expense, merchants, allCats, onSave, onClose }: {
+function EditModal({ expense, merchants, allCats, userId, onSave, onClose }: {
   expense: Expense; merchants: string[]; allCats: CatEntry[];
+  userId: string | null;
   onSave: (updated: Expense) => void; onClose: () => void;
 }) {
   const [f, setF] = useState({
@@ -391,10 +394,36 @@ function EditModal({ expense, merchants, allCats, onSave, onClose }: {
     category: expense.category, amount: String(expense.amount),
     rate: String(expense.rate), payment: expense.payment, notes: expense.notes || "",
   });
+  const [receiptUrl, setReceiptUrl] = useState<string | null>(expense.receiptUrl);
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+  const editFileRef = useRef<HTMLInputElement>(null);
   const set = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
   const usdBase = calcUsdBase(f.amount, f.rate);
   const { fees, tax } = calcFeesAndTax(usdBase, f.payment);
   const usdTotal = calcTotal(usdBase, fees, tax);
+
+  const handleSave = async () => {
+    const merchant = f.merchant;
+    if (!merchant || !(parseFloat(f.amount) > 0)) return;
+    setSaving(true);
+
+    let finalReceiptUrl = receiptUrl;
+    if (receiptFile && userId) {
+      const ext = receiptFile.name.split(".").pop() ?? "jpg";
+      const path = `${userId}/${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage.from("receipts").upload(path, receiptFile);
+      if (!upErr) {
+        const { data: urlData } = supabase.storage.from("receipts").getPublicUrl(path);
+        finalReceiptUrl = urlData.publicUrl;
+      }
+    }
+
+    const ub = calcUsdBase(f.amount, f.rate);
+    const { fees: fe, tax: tx } = calcFeesAndTax(ub, f.payment);
+    onSave({ ...expense, date: f.date, merchant, category: f.category, amount: parseFloat(f.amount), rate: parseFloat(f.rate) || 1, payment: f.payment, notes: f.notes, usdAmount: calcTotal(ub, fe, tx), receiptUrl: finalReceiptUrl });
+    setSaving(false);
+  };
 
   return (
     <div className="absolute inset-0 z-50 bg-black/40 flex items-end" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
@@ -449,14 +478,35 @@ function EditModal({ expense, merchants, allCats, onSave, onClose }: {
           <Field label="Notes">
             <textarea rows={2} value={f.notes} onChange={e => set("notes", e.target.value)} className={inputCls + " resize-none"} />
           </Field>
-          <button onClick={() => {
-            const merchant = f.merchant;
-            if (!merchant || !(parseFloat(f.amount) > 0)) return;
-            const ub = calcUsdBase(f.amount, f.rate);
-            const { fees: fe, tax: tx } = calcFeesAndTax(ub, f.payment);
-            onSave({ ...expense, date: f.date, merchant, category: f.category, amount: parseFloat(f.amount), rate: parseFloat(f.rate) || 1, payment: f.payment, notes: f.notes, usdAmount: calcTotal(ub, fe, tx) });
-          }} className="w-full bg-indigo-600 text-white font-medium text-sm py-3 rounded-xl active:scale-95 transition-all">
-            Save Changes
+          <Field label="Receipt">
+            <input ref={editFileRef} type="file" accept="image/*" capture="environment" className="hidden"
+              onChange={e => {
+                const file = e.target.files?.[0];
+                if (file) { setReceiptFile(file); setReceiptUrl(URL.createObjectURL(file)); }
+              }} />
+            {receiptUrl ? (
+              <div className="space-y-2">
+                <a href={receiptUrl} target="_blank" rel="noopener noreferrer">
+                  <img src={receiptUrl} alt="Receipt" className="w-full max-h-48 object-contain rounded-lg border border-gray-200" />
+                </a>
+                <button onClick={() => editFileRef.current?.click()}
+                  className="w-full py-2 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-600 text-xs font-medium active:scale-95 transition-all">
+                  Replace receipt
+                </button>
+              </div>
+            ) : (
+              <button onClick={() => editFileRef.current?.click()}
+                className="w-full flex items-center justify-center gap-2 rounded-lg border border-dashed border-indigo-300 bg-indigo-50 text-indigo-600 text-sm font-medium py-3 hover:bg-indigo-100 active:scale-95 transition-all">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+                Upload receipt photo
+              </button>
+            )}
+          </Field>
+          <button onClick={handleSave} disabled={saving}
+            className="w-full bg-indigo-600 text-white font-medium text-sm py-3 rounded-xl active:scale-95 transition-all disabled:opacity-60">
+            {saving ? "Saving…" : "Save Changes"}
           </button>
         </div>
       </div>
@@ -644,14 +694,28 @@ export default function App() {
     const ub = calcUsdBase(form.amount, form.rate);
     const { fees: fe, tax: tx } = calcFeesAndTax(ub, form.payment);
     const usdAmount = calcTotal(ub, fe, tx);
+
+    let receiptUrl: string | null = null;
+    const file = fileRef.current?.files?.[0];
+    if (file && user) {
+      const ext = file.name.split(".").pop() ?? "jpg";
+      const path = `${user.id}/${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage.from("receipts").upload(path, file);
+      if (!upErr) {
+        const { data: urlData } = supabase.storage.from("receipts").getPublicUrl(path);
+        receiptUrl = urlData.publicUrl;
+      }
+    }
+
     const { data, error } = await supabase.from("expenses").insert({
       date: form.date, merchant, category: form.category,
       amount: parseFloat(form.amount), rate: parseFloat(form.rate) || 1,
       payment: form.payment, notes: form.notes, usd_amount: usdAmount,
-      user_id: user?.id,
+      user_id: user?.id, receipt_url: receiptUrl,
     }).select().single();
     if (error) { showToast("Failed to save", "error"); return; }
     setExpenses(p => [rowToExpense(data as ExpenseRow), ...p]);
+    if (fileRef.current) fileRef.current.value = "";
     setForm(f => ({ date: nowZW(), merchant: "", merchantInput: "", category: "Food & Groceries", amount: "", rate: "1.00", payment: f.payment, notes: "", receiptName: "" }));
     showToast("Expense saved!");
   };
@@ -660,7 +724,7 @@ export default function App() {
     const { error } = await supabase.from("expenses").update({
       date: updated.date, merchant: updated.merchant, category: updated.category,
       amount: updated.amount, rate: updated.rate, payment: updated.payment,
-      notes: updated.notes, usd_amount: updated.usdAmount,
+      notes: updated.notes, usd_amount: updated.usdAmount, receipt_url: updated.receiptUrl,
     }).eq("id", updated.id);
     if (error) { showToast("Failed to update", "error"); return; }
     setExpenses(p => p.map(e => e.id === updated.id ? updated : e));
@@ -863,6 +927,7 @@ export default function App() {
                       expenses={expenses}
                       merchants={merchants}
                       allCats={allCats}
+                      userId={user?.id ?? null}
                       onUpdate={handleUpdate}
                       onDelete={handleDelete}
                       portalTarget={historySlide}
@@ -898,8 +963,9 @@ export default function App() {
 }
 
 // ── History view ───────────────────────────────────────────────────────────
-function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete, portalTarget }: {
+function HistoryView({ expenses, merchants, allCats, userId, onUpdate, onDelete, portalTarget }: {
   expenses: Expense[]; merchants: string[]; allCats: CatEntry[];
+  userId: string | null;
   onUpdate: (updated: Expense) => void; onDelete: (id: string) => void;
   portalTarget: HTMLDivElement | null;
 }) {
@@ -1014,7 +1080,7 @@ function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete, portalT
   };
 
   const editModal = editing && (
-    <EditModal expense={editing} merchants={merchants} allCats={allCats}
+    <EditModal expense={editing} merchants={merchants} allCats={allCats} userId={userId}
       onSave={updated => { onUpdate(updated); setEditing(null); }}
       onClose={() => setEditing(null)} />
   );
@@ -1199,6 +1265,14 @@ function HistoryView({ expenses, merchants, allCats, onUpdate, onDelete, portalT
                       <div className="bg-white rounded-lg border border-gray-100 px-3 py-2">
                         <p className="text-xs text-gray-400 mb-0.5">Notes</p>
                         <p className="text-sm text-gray-700 italic">{e.notes}</p>
+                      </div>
+                    )}
+                    {e.receiptUrl && (
+                      <div className="bg-white rounded-lg border border-gray-100 p-2">
+                        <p className="text-xs text-gray-400 mb-1.5">Receipt</p>
+                        <a href={e.receiptUrl} target="_blank" rel="noopener noreferrer">
+                          <img src={e.receiptUrl} alt="Receipt" className="w-full max-h-48 object-contain rounded-md" />
+                        </a>
                       </div>
                     )}
                     <div className="flex gap-2">

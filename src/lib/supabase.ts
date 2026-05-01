@@ -17,6 +17,7 @@ export interface ExpenseRow {
   usd_amount: number;
   created_at: string;
   user_id: string | null;
+  receipt_url: string | null;
 }
 
 export interface SafeCashRow {
